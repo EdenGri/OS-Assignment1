@@ -95,3 +95,16 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+//todo do we need to return 0?
+uint64
+sys_pause_system(void)
+{
+  return pause_system();
+}
+
+uint64
+sys_kill_system(void)
+{
+  return kill_system();
+}
