@@ -100,7 +100,12 @@ sys_uptime(void)
 uint64
 sys_pause_system(void)
 {
-  return pause_system();
+  int seconds;
+  if(argint(0, &seconds)<0)
+  {
+    return -1;
+  }
+  return pause_system(seconds);
 }
 
 uint64

@@ -7,7 +7,14 @@
 #include "defs.h"
 
 struct cpu cpus[NCPU];
-
+//todo change names
+//---------------------------------
+int start_time=0;
+//int num_processes = 0;
+int seconds_to_pause = 0;
+int last_pause = 0;
+int program_time = 0;
+//----------------------------------
 struct proc proc[NPROC];
 
 struct proc *initproc;
@@ -427,6 +434,21 @@ wait(uint64 addr)
   }
 }
 
+//todo check if need and why
+/*
+void scheduler(void){
+  #ifdef DEFAULT
+    default_scheduler();
+  #endif
+  #ifdef SJF
+    sjf_scheduler();
+  #endif
+  #ifdef FCFS
+    fcfs_scheduler();
+  #endif
+}
+*/
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -434,6 +456,8 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+
+//todo: to remember to check the assignment with one cpu
 void
 scheduler(void)
 {
@@ -441,35 +465,34 @@ scheduler(void)
   struct cpu *c = mycpu();
   
   c->proc = 0;
-  for(;;){
+  for(;;)
+  {
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        for(;;)
-        //while(last_pause!=init)
+    for(p = proc; p < &proc[NPROC]; p++) 
+    {
+      //ticks++
+      //todo: check if the process is init or shell proc
+      //p->pid <3 
+      if ((ticks-last_pause>=seconds_to_pause*TICKS_TO_SEC))
+      {
+        acquire(&p->lock);
+        if(p->state == RUNNABLE) 
         {
-          //ticks++
-          if ((ticks-last_pause>=seconds*TICKS_TO_SEC))
-          {
-            break;
-          }
+          // Switch to chosen process.  It is the process's job
+          // to release its lock and then reacquire it
+          // before jumping back to us.
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
+          // Process is done running for now.
+          // It should have changed its p->state before coming back.
+          c->proc = 0;
         }
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-      }
-      release(&p->lock);
-    }
+        release(&p->lock);
+      }                
+    }   
   }
 }
 
@@ -663,3 +686,31 @@ procdump(void)
     printf("\n");
   }
 }
+//todo:do we nned the yield?
+int
+pause_system(int seconds)
+{
+  yield();
+  seconds_to_pause = seconds;
+  uint last_pause = ticks;
+  return 0;
+}
+
+int
+kill_system(void)
+{
+  struct proc* p = myproc();
+  int pid;
+  for(p = proc; p < &proc[NPROC]; p++)
+  {
+    acquire(&p->lock);
+    pid = p->pid;
+    release(&p->lock);
+    if((pid != INIT_PID) && (pid != SHELL_PID))
+    {
+      kill(pid);
+    }   
+  }
+  return 0;
+}
+

@@ -184,6 +184,9 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
-
+//todo:check if it 10 or 10,000,000
 #define TICKS_TO_SEC 10000000
+
+#define INIT_PID 1
+#define SHELL_PID 2
 
