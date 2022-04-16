@@ -603,6 +603,7 @@ wakeup(void *chan)
     }
   }
 }
+//todo:delete the env.c file and syscall.c file
 
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
@@ -686,13 +687,13 @@ procdump(void)
     printf("\n");
   }
 }
-//todo:do we nned the yield?
+//todo:do we need the yield?
 int
 pause_system(int seconds)
 {
   yield();
   seconds_to_pause = seconds;
-  uint last_pause = ticks;
+  last_pause = ticks;
   return 0;
 }
 
