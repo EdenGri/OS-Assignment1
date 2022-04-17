@@ -94,7 +94,7 @@ struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
 struct proc*    myproc();
 void            procinit(void);
-void            scheduler(void) __attribute__((noreturn));
+void            scheduler(void); //__attribute__((noreturn));
 void            sched(void);
 void            sleep(void*, struct spinlock*);
 void            userinit(void);
@@ -106,6 +106,13 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 int             pause_system(int seconds);
 int             kill_system(void);
+void            sjf_scheduler(void); //__attribute__((noreturn));
+void            fcfs_scheduler(void); //__attribute__((noreturn));
+void            default_scheduler(void); //__attribute__((noreturn));
+
+
+
+
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -140,6 +147,10 @@ int             argaddr(int, uint64 *);
 int             fetchstr(uint64, char*, int);
 int             fetchaddr(uint64, uint64*);
 void            syscall();
+void            set_economic_mode_dem(int interval, int loop_size);
+void            set_economic_mode(int interval);
+
+//todo delete test set_economic_mode_dem
 
 // trap.c
 extern uint     ticks;
@@ -187,7 +198,7 @@ void            virtio_disk_intr(void);
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
 //todo:check if it 10 or 10,000,000
-#define TICKS_TO_SEC 10000000
+#define TICKS_TO_SEC 10
 
 #define INIT_PID 1
 #define SHELL_PID 2
