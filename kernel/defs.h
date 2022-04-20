@@ -83,6 +83,8 @@ void            printfinit(void);
 
 // proc.c
 int             cpuid(void);
+int             get_mean(int, int, int);
+void            update_statistics(struct proc*);
 void            exit(int);
 int             fork(void);
 int             growproc(int);
@@ -106,6 +108,7 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 int             pause_system(int seconds);
 int             kill_system(void);
+void            print_stats(void);
 void            sjf_scheduler(void); //__attribute__((noreturn));
 void            fcfs_scheduler(void); //__attribute__((noreturn));
 void            default_scheduler(void); //__attribute__((noreturn));
@@ -147,6 +150,7 @@ int             argaddr(int, uint64 *);
 int             fetchstr(uint64, char*, int);
 int             fetchaddr(uint64, uint64*);
 void            syscall();
+//todo:delete
 void            set_economic_mode_dem(int interval, int loop_size);
 void            set_economic_mode(int interval);
 

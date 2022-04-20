@@ -9,12 +9,22 @@
 struct cpu cpus[NCPU];
 //todo change names
 //---------------------------------
-//int start_time=0;
-//int num_processes = 0;
 int seconds_to_pause = 0;
 int last_pause = 0;
-//int program_time = 0;
 int rate = 5;
+int runs_count = 0;
+
+int sleeping_processes_mean = 0;
+// running_processes_mean hold the mean of the time spent in running state
+int running_processes_mean = 0;
+// running_time_mean hold the mean of the time spent in runnable state
+int running_time_mean = 0;
+
+//program time holds the sum of all running time of all processes excluding init and shell
+int program_time = 0;
+
+int start_time = 0; 
+int cpu_utilization = 0;
 //----------------------------------
 struct proc proc[NPROC];
 
@@ -55,13 +65,13 @@ void
 procinit(void)
 {
   struct proc *p;
-  
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
       p->kstack = KSTACK((int) (p - proc));
   }
+  start_time = ticks;
 }
 
 // Must be called with interrupts disabled,
@@ -249,12 +259,24 @@ userinit(void)
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
-
+  //todo:delete
+  /*
+  switch(p->state)
+  {
+    case RUNNING:
+      p->running_time += ticks-p->last_running_time;
+      break;
+    case SLEEPING:
+      p->sleeping_time += ticks - p->last_sleeping_time;
+      break;
+  }
+  */
   p->state = RUNNABLE;
   p->last_runnable_time = ticks;
 
   release(&p->lock);
 }
+//todo:maybe toreplace all the fields that related to ticks to uint
 
 // Grow or shrink user memory by n bytes.
 // Return 0 on success, -1 on failure.
@@ -321,6 +343,18 @@ fork(void)
   release(&wait_lock);
 
   acquire(&np->lock);
+  //todo:delete
+  /*
+  switch(p->state)
+  {
+    case RUNNING:
+      p->running_time += ticks-p->last_running_time;
+      break;
+    case SLEEPING:
+      p->sleeping_time += ticks - p->last_sleeping_time;
+      break;
+  }
+  */
   np->state = RUNNABLE;
   np->last_runnable_time = ticks;
   release(&np->lock);
@@ -343,6 +377,28 @@ reparent(struct proc *p)
   }
 }
 
+int
+get_mean(int old_mean, int runs_count, int curr_time)
+{
+  return ((old_mean * runs_count) + curr_time)/ (runs_count+1);
+}
+
+void
+update_statistics(struct proc* p)
+{
+  sleeping_processes_mean = get_mean(sleeping_processes_mean,runs_count,p->sleeping_time);
+  running_processes_mean = get_mean(running_processes_mean,runs_count,p->running_time);
+  running_time_mean = get_mean(running_time_mean,runs_count,p->runnable_time);
+  acquire(p->lock);
+  if(p->pid!=INIT_PID && p->pid != SHELL_PID)
+  {
+    program_time += p->running_time;
+  }
+  release(p->lock); 
+  cpu_utilization = program_time / (ticks - start_time);
+  runs_count++;
+}
+
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
 // until its parent calls wait().
@@ -350,6 +406,8 @@ void
 exit(int status)
 {
   struct proc *p = myproc();
+  //todo: here update statistics?
+  update_statistics(p);
 
   if(p == initproc)
     panic("init exiting");
@@ -379,6 +437,21 @@ exit(int status)
   acquire(&p->lock);
 
   p->xstate = status;
+  //todo:delete
+/*
+  switch(p->state)
+  {
+    case RUNNING:
+      p->running_time += ticks-p->last_running_time;
+      break;
+    case RUNNABLE:
+      p->runnable_time += ticks-p->last_runnable_time;
+      break;
+    case SLEEPING:
+      p->sleeping_time += ticks - p->last_sleeping_time;
+      break;
+  }
+  */
   p->state = ZOMBIE;
 
   release(&wait_lock);
@@ -436,7 +509,7 @@ wait(uint64 addr)
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
 }
-
+//todo:delete prints
 void
 scheduler(void)
 {
@@ -510,13 +583,29 @@ sjf_scheduler(void)
     acquire(&p_to_run->lock);
     if(p_to_run->state == RUNNABLE)
     {
-      procdump();
+      p_to_run->runnable_time += ticks-p_to_run->last_runnable_time;
       p_to_run->state = RUNNING;
+      p_to_run->last_running_time = ticks;
       c->proc = p_to_run;
       p_to_run->start_ticks = ticks;
       swtch(&c->context, &p_to_run->context);
       // Process is done running for now.
       // It should have changed its p->state before coming back.
+      //todo: check??
+
+      switch(p->state)
+      {
+        case RUNNABLE:
+          p->last_runnable_time= ticks;
+          break;
+        case SLEEPING:
+          p->last_sleeping_time = ticks;
+          break;
+      }
+      if(p_to_run->state!=RUNNING)
+      {
+        p_to_run->running_time += ticks-p_to_run->last_running_time;
+      }
       p_to_run->end_ticks = ticks;
       p_to_run->last_ticks = p_to_run->end_ticks-p_to_run->start_ticks;
       c->proc = 0;
@@ -569,11 +658,26 @@ fcfs_scheduler(void)
     acquire(&p_to_run->lock);
     if(p_to_run->state == RUNNABLE)
     {
+      p_to_run->runnable_time += ticks-p_to_run->last_runnable_time;
       p_to_run->state = RUNNING;
+      p_to_run->last_running_time = ticks;
       c->proc = p_to_run;
       swtch(&c->context, &p_to_run->context);
       // Process is done running for now.
       // It should have changed its p->state before coming back.
+      switch(p->state)
+      {
+        case RUNNABLE:
+          p->last_runnable_time= ticks;
+          break;
+        case SLEEPING:
+          p->last_sleeping_time = ticks;
+          break;
+      }
+      if(p_to_run->state!=RUNNING)
+      {
+        p_to_run->running_time += ticks-p_to_run->last_running_time;
+      }
       c->proc = 0;
     }  
     release(&p_to_run->lock);
@@ -615,11 +719,26 @@ default_scheduler(void)
           // Switch to chosen process.  It is the process's job
           // to release its lock and then reacquire it
           // before jumping back to us.
+          p->runnable_time += ticks-p->last_runnable_time;
           p->state = RUNNING;
+          p->last_running_time = ticks;
           c->proc = p;
           swtch(&c->context, &p->context);
           // Process is done running for now.
           // It should have changed its p->state before coming back.
+          switch(p->state)
+          {
+            case RUNNABLE:
+              p->last_runnable_time= ticks;
+              break;
+            case SLEEPING:
+              p->last_sleeping_time = ticks;
+              break;
+          }
+          if(p_to_run->state!=RUNNING)
+          {
+            p_to_run->running_time += ticks-p_to_run->last_running_time;
+          }
           c->proc = 0;
         }
         release(&p->lock);
@@ -662,6 +781,7 @@ yield(void)
   struct proc *p = myproc();
   acquire(&p->lock);
   p->state = RUNNABLE;
+  p->running_time += ticks - p->last_running_start;
   p->last_runnable_time = ticks;
   sched();
   release(&p->lock);
@@ -705,6 +825,19 @@ sleep(void *chan, struct spinlock *lk)
   acquire(&p->lock);  //DOC: sleeplock1
   release(lk);
 
+  p->last_sleeping_time = ticks;
+  //todo:delete
+  /*
+  switch(p->state)
+  {
+    case RUNNING:
+      p->running_time += ticks-p->last_running_time;
+      break;
+    case RUNNABLE:
+      p->runnable_time += ticks-p->last_runnable_time;
+      break;
+  }
+  */
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
@@ -730,14 +863,16 @@ wakeup(void *chan)
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
+        p->sleeping_time += ticks-p->last_sleeping_time;
         p->state = RUNNABLE;
-        p->last_runnable_time = ticks;
+        p->last_runnable_time = ticks;       
       }
       release(&p->lock);
     }
   }
 }
 //todo:delete the env.c file and syscall.c file
+//todo: what if runnable process get kiil? when it goes from runnable to zombie?
 
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
@@ -753,6 +888,7 @@ kill(int pid)
       p->killed = 1;
       if(p->state == SLEEPING){
         // Wake process from sleep().
+        p->sleeping_time += ticks-p->last_sleeping_time;
         p->state = RUNNABLE;
         p->last_runnable_time = ticks;
       }
@@ -822,7 +958,7 @@ procdump(void)
     printf("\n");
   }
 }
-//todo:do we need the yield?
+
 int
 pause_system(int seconds)
 {
@@ -832,22 +968,35 @@ pause_system(int seconds)
 
   return 0;
 }
-
+//todo take out to function
 int
 kill_system(void)
 {
-  struct proc* p = myproc();
+  struct proc* p;
   int pid;
   for(p = proc; p < &proc[NPROC]; p++)
   {
     acquire(&p->lock);
     pid = p->pid;
-    release(&p->lock);
     if((pid != INIT_PID) && (pid != SHELL_PID))
     {
-      kill(pid);
-    }   
+      p->killed = 1;
+      if(p->state == SLEEPING)
+      {
+        // Wake process from sleep().
+        p->sleeping_time += ticks-p->last_sleeping_time;
+        p->state = RUNNABLE;
+        p->last_runnable_time = ticks;
+      }
+    }
+    release(&p->lock);   
+    return 0;
   }
-  return 0;
+}
+
+void
+print_stats(void)
+{
+  printf("print statistics.....\n");
 }
 
