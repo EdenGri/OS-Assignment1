@@ -389,12 +389,12 @@ update_statistics(struct proc* p)
   sleeping_processes_mean = get_mean(sleeping_processes_mean,runs_count,p->sleeping_time);
   running_processes_mean = get_mean(running_processes_mean,runs_count,p->running_time);
   running_time_mean = get_mean(running_time_mean,runs_count,p->runnable_time);
-  acquire(p->lock);
+  acquire(&p->lock);
   if(p->pid!=INIT_PID && p->pid != SHELL_PID)
   {
     program_time += p->running_time;
   }
-  release(p->lock); 
+  release(&p->lock); 
   cpu_utilization = program_time / (ticks - start_time);
   runs_count++;
 }
@@ -548,7 +548,7 @@ sjf_scheduler(void)
     min_ticks=-1;
     for(p = proc; p < &proc[NPROC]; p++) 
     {
-
+      
       //ticks++
       //todo: check if the process is init or shell proc
       //p->pid <3 
@@ -557,12 +557,8 @@ sjf_scheduler(void)
       {
 
         acquire(&p->lock);
-
         if(p->state == RUNNABLE)
         {
-
-          p->mean_ticks =  ((10 - rate) * p->mean_ticks + p->last_ticks * (rate)) / 10;
-
           if(p->mean_ticks < min_ticks || min_ticks==-1)
           {
             p_to_run = p;
@@ -580,6 +576,8 @@ sjf_scheduler(void)
     // Switch to chosen process.  It is the process's job
     // to release its lock and then reacquire it
     // before jumping back to us.
+    //todo:delete procdump
+    procdump();
     acquire(&p_to_run->lock);
     if(p_to_run->state == RUNNABLE)
     {
@@ -588,18 +586,24 @@ sjf_scheduler(void)
       p_to_run->last_running_time = ticks;
       c->proc = p_to_run;
       p_to_run->start_ticks = ticks;
+      printf("----------------------------------------------------------\n");
+      printf("start ticks: %d\n", p_to_run->start_ticks);
+      printf("scheduler running pid: %d\n",p_to_run->pid);
+      
       swtch(&c->context, &p_to_run->context);
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       //todo: check??
-
-      switch(p->state)
+      
+      switch(p_to_run->state)
       {
         case RUNNABLE:
-          p->last_runnable_time= ticks;
+          p_to_run->last_runnable_time= ticks;
           break;
         case SLEEPING:
-          p->last_sleeping_time = ticks;
+          p_to_run->last_sleeping_time = ticks;
+          break;
+        default:
           break;
       }
       if(p_to_run->state!=RUNNING)
@@ -607,10 +611,18 @@ sjf_scheduler(void)
         p_to_run->running_time += ticks-p_to_run->last_running_time;
       }
       p_to_run->end_ticks = ticks;
+
       p_to_run->last_ticks = p_to_run->end_ticks-p_to_run->start_ticks;
+      //todo check the plase of mean ticks
+      p_to_run->mean_ticks =  ((10 - rate) * p_to_run->mean_ticks + p_to_run->last_ticks * rate)/10;
+      printf("end ticks: %d\n",p_to_run->end_ticks);
+      printf("rate: %d, last ticks: %d\n", rate, p_to_run->last_ticks);
+      printf("mean ticks is: %d in process %d\n", p_to_run->mean_ticks,p_to_run->pid);
+      printf("----------------------------------------------------------\n");
       c->proc = 0;
     }  
     release(&p_to_run->lock);
+    
   }   
   
 }
@@ -631,6 +643,7 @@ fcfs_scheduler(void)
     intr_on();
     p_to_run=0;
     min_last_runnable_time=-1;
+    
     for(p = proc; p < &proc[NPROC]; p++) 
     {
       //ticks++
@@ -655,6 +668,7 @@ fcfs_scheduler(void)
     // Switch to chosen process.  It is the process's job
     // to release its lock and then reacquire it
     // before jumping back to us.
+    procdump();
     acquire(&p_to_run->lock);
     if(p_to_run->state == RUNNABLE)
     {
@@ -662,16 +676,21 @@ fcfs_scheduler(void)
       p_to_run->state = RUNNING;
       p_to_run->last_running_time = ticks;
       c->proc = p_to_run;
+      printf("scheduler running pid: %d\n",p_to_run->pid);
+      printf("----------------------------------------------------------\n");
+      
       swtch(&c->context, &p_to_run->context);
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       switch(p->state)
       {
         case RUNNABLE:
-          p->last_runnable_time= ticks;
+          p_to_run->last_runnable_time= ticks;
           break;
         case SLEEPING:
-          p->last_sleeping_time = ticks;
+          p_to_run->last_sleeping_time = ticks;
+          break;
+        default:
           break;
       }
       if(p_to_run->state!=RUNNING)
@@ -734,10 +753,12 @@ default_scheduler(void)
             case SLEEPING:
               p->last_sleeping_time = ticks;
               break;
+            default:
+              break;
           }
-          if(p_to_run->state!=RUNNING)
+          if(p->state!=RUNNING)
           {
-            p_to_run->running_time += ticks-p_to_run->last_running_time;
+            p->running_time += ticks-p->last_running_time;
           }
           c->proc = 0;
         }
@@ -781,7 +802,7 @@ yield(void)
   struct proc *p = myproc();
   acquire(&p->lock);
   p->state = RUNNABLE;
-  p->running_time += ticks - p->last_running_start;
+  p->running_time += ticks - p->last_running_time;
   p->last_runnable_time = ticks;
   sched();
   release(&p->lock);
@@ -990,8 +1011,8 @@ kill_system(void)
       }
     }
     release(&p->lock);   
-    return 0;
   }
+  return 0;
 }
 
 void

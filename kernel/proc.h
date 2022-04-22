@@ -93,18 +93,18 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
 
-  int mean_ticks;
-  int last_ticks;
-  int start_ticks;
-  int end_ticks;
+  uint mean_ticks;
+  uint last_ticks;
+  uint start_ticks;
+  uint end_ticks;
   //--------------------------------------------------
-  int sleeping_time;
-  int runnable_time;
-  int running_time;
+  uint sleeping_time;
+  uint runnable_time;
+  uint running_time;
 
-  int last_sleeping_time;
-  int last_runnable_time;
-  int last_running_time;  
+  uint last_sleeping_time;
+  uint last_runnable_time;
+  uint last_running_time;  
   
   //------------------------------------
   // wait_lock must be held when using this:
