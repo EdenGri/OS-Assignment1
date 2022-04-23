@@ -108,7 +108,7 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 int             pause_system(int seconds);
 int             kill_system(void);
-void            print_stats(void);
+int             print_stats(void);
 void            sjf_scheduler(void); //__attribute__((noreturn));
 void            fcfs_scheduler(void); //__attribute__((noreturn));
 void            default_scheduler(void); //__attribute__((noreturn));

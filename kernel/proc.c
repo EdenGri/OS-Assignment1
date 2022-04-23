@@ -25,6 +25,7 @@ int program_time = 0;
 
 int start_time = 0; 
 int cpu_utilization = 0;
+int cpu_utilization_precent = 0;
 //----------------------------------
 struct proc proc[NPROC];
 
@@ -380,12 +381,14 @@ reparent(struct proc *p)
 int
 get_mean(int old_mean, int runs_count, int curr_time)
 {
-  return ((old_mean * runs_count) + curr_time)/ (runs_count+1);
+  //printf("((old_mean: %d * runs_count: %d -1) + curr_timw: old time: %d\n", runs_count, curr_time, old_mean);
+  return ((old_mean * (runs_count-1)) + curr_time)/ (runs_count);
 }
 
 void
 update_statistics(struct proc* p)
 {
+  runs_count++;
   sleeping_processes_mean = get_mean(sleeping_processes_mean,runs_count,p->sleeping_time);
   running_processes_mean = get_mean(running_processes_mean,runs_count,p->running_time);
   running_time_mean = get_mean(running_time_mean,runs_count,p->runnable_time);
@@ -394,9 +397,10 @@ update_statistics(struct proc* p)
   {
     program_time += p->running_time;
   }
-  release(&p->lock); 
+  release(&p->lock);
   cpu_utilization = program_time / (ticks - start_time);
-  runs_count++;
+  cpu_utilization_precent = (program_time*100) / (ticks - start_time);
+  
 }
 
 // Exit the current process.  Does not return.
@@ -1014,10 +1018,20 @@ kill_system(void)
   }
   return 0;
 }
-
-void
+//todo: check panic rr
+//todo: delete test from makefile and in jeneral
+int //todo eden
+    //change in all places 
 print_stats(void)
 {
-  printf("print statistics.....\n");
+//todo- need lock? statslock?
+ printf("Sleeping Processes Mean: %d\n", sleeping_processes_mean);
+ printf("Running Processes Mean: %d\n", running_processes_mean);
+ printf("Runnable Processes Mean: %d\n", running_time_mean);
+ printf("Number of Processes: %d\n", runs_count);
+ printf("Program Time: %d\n", program_time);
+ printf("CPU Utilization: %d\n", cpu_utilization);
+ //todo:
+ printf("CPU Utilization percentage: %d%%\n", cpu_utilization_precent);
+ return 0;
 }
-
