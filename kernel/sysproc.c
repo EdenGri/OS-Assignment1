@@ -96,7 +96,6 @@ sys_uptime(void)
   return xticks;
 }
 
-//todo do we need to return 0?
 uint64
 sys_pause_system(void)
 {

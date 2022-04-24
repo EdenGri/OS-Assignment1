@@ -7,8 +7,6 @@
 #include "defs.h"
 
 struct cpu cpus[NCPU];
-//todo change names
-//---------------------------------
 int seconds_to_pause = 0;
 int last_pause = 0;
 int rate = 5;
@@ -19,14 +17,12 @@ int sleeping_processes_mean = 0;
 int running_processes_mean = 0;
 // running_time_mean hold the mean of the time spent in runnable state
 int running_time_mean = 0;
-
 //program time holds the sum of all running time of all processes excluding init and shell
 int program_time = 0;
 
 int start_time = 0; 
 int cpu_utilization = 0;
 int cpu_utilization_precent = 0;
-//----------------------------------
 struct proc proc[NPROC];
 
 struct proc *initproc;
@@ -260,24 +256,11 @@ userinit(void)
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
-  //todo:delete
-  /*
-  switch(p->state)
-  {
-    case RUNNING:
-      p->running_time += ticks-p->last_running_time;
-      break;
-    case SLEEPING:
-      p->sleeping_time += ticks - p->last_sleeping_time;
-      break;
-  }
-  */
   p->state = RUNNABLE;
   p->last_runnable_time = ticks;
 
   release(&p->lock);
 }
-//todo:maybe toreplace all the fields that related to ticks to uint
 
 // Grow or shrink user memory by n bytes.
 // Return 0 on success, -1 on failure.
@@ -344,18 +327,7 @@ fork(void)
   release(&wait_lock);
 
   acquire(&np->lock);
-  //todo:delete
-  /*
-  switch(p->state)
-  {
-    case RUNNING:
-      p->running_time += ticks-p->last_running_time;
-      break;
-    case SLEEPING:
-      p->sleeping_time += ticks - p->last_sleeping_time;
-      break;
-  }
-  */
+
   np->state = RUNNABLE;
   np->last_runnable_time = ticks;
   release(&np->lock);
@@ -381,13 +353,13 @@ reparent(struct proc *p)
 int
 get_mean(int old_mean, int runs_count, int curr_time)
 {
-  //printf("((old_mean: %d * runs_count: %d -1) + curr_timw: old time: %d\n", runs_count, curr_time, old_mean);
   return ((old_mean * (runs_count-1)) + curr_time)/ (runs_count);
 }
 
 void
 update_statistics(struct proc* p)
 {
+
   runs_count++;
   sleeping_processes_mean = get_mean(sleeping_processes_mean,runs_count,p->sleeping_time);
   running_processes_mean = get_mean(running_processes_mean,runs_count,p->running_time);
@@ -410,7 +382,6 @@ void
 exit(int status)
 {
   struct proc *p = myproc();
-  //todo: here update statistics?
   update_statistics(p);
 
   if(p == initproc)
@@ -441,21 +412,6 @@ exit(int status)
   acquire(&p->lock);
 
   p->xstate = status;
-  //todo:delete
-/*
-  switch(p->state)
-  {
-    case RUNNING:
-      p->running_time += ticks-p->last_running_time;
-      break;
-    case RUNNABLE:
-      p->runnable_time += ticks-p->last_runnable_time;
-      break;
-    case SLEEPING:
-      p->sleeping_time += ticks - p->last_sleeping_time;
-      break;
-  }
-  */
   p->state = ZOMBIE;
 
   release(&wait_lock);
@@ -513,122 +469,105 @@ wait(uint64 addr)
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
 }
-//todo:delete prints
+
 void
 scheduler(void)
 {
   #ifdef DEFAULT
-    printf("in default ifdef\n");
     default_scheduler();
   #endif
   #ifdef SJF
-    printf("in SJF ifdef\n");
     sjf_scheduler();
   #endif
   #ifdef FCFS
-    printf("in FCFS ifdef\n");
     fcfs_scheduler();
   #endif
 }
 
-
+struct proc* 
+get_next_proc(int is_sjf, int is_fcfs)
+{
+  struct proc* p;
+  struct proc* p_to_run=0;
+  int min_ticks=__INT32_MAX__;
+  uint curr_ticks = 0;
+  for(p = proc; p < &proc[NPROC]; p++) 
+  {
+    if ((ticks-last_pause>=seconds_to_pause*TICKS_TO_SEC))
+    {
+      acquire(&p->lock);
+      if(is_sjf)
+      {
+        curr_ticks = p->mean_ticks;
+      }
+      else if(is_fcfs)
+      {
+        curr_ticks =p->last_runnable_time;
+      }
+      if((p->state == RUNNABLE) && (curr_ticks < min_ticks)) 
+        {
+          p_to_run = p;
+          min_ticks = curr_ticks;  
+        }     
+        release(&p->lock);
+    }
+  }
+  return p_to_run;  
+}
 void
 sjf_scheduler(void)
 {
-  printf("in sjf_scheduler\n");
   struct proc *p;
   struct cpu *c = mycpu();
-  struct proc* p_to_run;
-  int min_ticks;
   c->proc = 0;
-
 
   for(;;)
   {
 
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    p_to_run=0;
-    min_ticks=-1;
-    for(p = proc; p < &proc[NPROC]; p++) 
-    {
-      
-      //ticks++
-      //todo: check if the process is init or shell proc
-      //p->pid <3 
+    p=get_next_proc(1,0);
 
-      if ((ticks-last_pause>=seconds_to_pause*TICKS_TO_SEC))
-      {
-
-        acquire(&p->lock);
-        if(p->state == RUNNABLE)
-        {
-          if(p->mean_ticks < min_ticks || min_ticks==-1)
-          {
-            p_to_run = p;
-            min_ticks = p->mean_ticks;  
-          }
-        }       
-        release(&p->lock);
-      }
-
-    }  
-    if (p_to_run == 0)
+    if (p == 0)
     {
       continue;  
     }
     // Switch to chosen process.  It is the process's job
     // to release its lock and then reacquire it
     // before jumping back to us.
-    //todo:delete procdump
-    procdump();
-    acquire(&p_to_run->lock);
-    if(p_to_run->state == RUNNABLE)
+    acquire(&p->lock);
+    if(p->state == RUNNABLE)
     {
-      p_to_run->runnable_time += ticks-p_to_run->last_runnable_time;
-      p_to_run->state = RUNNING;
-      p_to_run->last_running_time = ticks;
-      c->proc = p_to_run;
-      p_to_run->start_ticks = ticks;
-      printf("----------------------------------------------------------\n");
-      printf("start ticks: %d\n", p_to_run->start_ticks);
-      printf("scheduler running pid: %d\n",p_to_run->pid);
+      p->runnable_time += ticks-p->last_runnable_time;
+      p->state = RUNNING;
+      p->last_running_time = ticks;
+      c->proc = p;
+      p->start_ticks = ticks;
       
-      swtch(&c->context, &p_to_run->context);
+      swtch(&c->context, &p->context);
       // Process is done running for now.
       // It should have changed its p->state before coming back.
-      //todo: check??
       
-      switch(p_to_run->state)
+      if(p->state == RUNNABLE)
       {
-        case RUNNABLE:
-          p_to_run->last_runnable_time= ticks;
-          break;
-        case SLEEPING:
-          p_to_run->last_sleeping_time = ticks;
-          break;
-        default:
-          break;
+        p->last_runnable_time= ticks;
       }
-      if(p_to_run->state!=RUNNING)
+      else if(p->state == SLEEPING)
       {
-        p_to_run->running_time += ticks-p_to_run->last_running_time;
+        p->last_sleeping_time = ticks;
       }
-      p_to_run->end_ticks = ticks;
+      if(p->state!=RUNNING)
+      {
+        p->running_time += ticks-p->last_running_time;
+      }
+      p->end_ticks = ticks;
 
-      p_to_run->last_ticks = p_to_run->end_ticks-p_to_run->start_ticks;
-      //todo check the plase of mean ticks
-      p_to_run->mean_ticks =  ((10 - rate) * p_to_run->mean_ticks + p_to_run->last_ticks * rate)/10;
-      printf("end ticks: %d\n",p_to_run->end_ticks);
-      printf("rate: %d, last ticks: %d\n", rate, p_to_run->last_ticks);
-      printf("mean ticks is: %d in process %d\n", p_to_run->mean_ticks,p_to_run->pid);
-      printf("----------------------------------------------------------\n");
+      p->last_ticks = p->end_ticks-p->start_ticks;
+      p->mean_ticks =  ((10 - rate) * p->mean_ticks + p->last_ticks * rate)/10;
       c->proc = 0;
     }  
-    release(&p_to_run->lock);
-    
+    release(&p->lock);
   }   
-  
 }
 
 void
@@ -636,8 +575,6 @@ fcfs_scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  struct proc* p_to_run;
-  int min_last_runnable_time;
   c->proc = 0;
 
 
@@ -645,65 +582,41 @@ fcfs_scheduler(void)
   {
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    p_to_run=0;
-    min_last_runnable_time=-1;
+    p=get_next_proc(0,1);
     
-    for(p = proc; p < &proc[NPROC]; p++) 
-    {
-      //ticks++
-      //todo: check if the process is init or shell proc
-      //p->pid <3 
-
-      if ((ticks-last_pause>=seconds_to_pause*TICKS_TO_SEC))
-      {
-        acquire(&p->lock);
-        if(p->state == RUNNABLE && (p->last_runnable_time < min_last_runnable_time || min_last_runnable_time==-1))
-        {
-          p_to_run = p;
-          min_last_runnable_time = p->last_runnable_time;  
-        }    
-        release(&p->lock);
-      }
-    }  
-    if (p_to_run == 0)
+    if (p == 0)
     {
       continue;  
     }
     // Switch to chosen process.  It is the process's job
     // to release its lock and then reacquire it
     // before jumping back to us.
-    procdump();
-    acquire(&p_to_run->lock);
-    if(p_to_run->state == RUNNABLE)
+    acquire(&p->lock);
+    if(p->state == RUNNABLE)
     {
-      p_to_run->runnable_time += ticks-p_to_run->last_runnable_time;
-      p_to_run->state = RUNNING;
-      p_to_run->last_running_time = ticks;
-      c->proc = p_to_run;
-      printf("scheduler running pid: %d\n",p_to_run->pid);
-      printf("----------------------------------------------------------\n");
+      p->runnable_time += ticks-p->last_runnable_time;
+      p->state = RUNNING;
+      p->last_running_time = ticks;
+      c->proc = p;
       
-      swtch(&c->context, &p_to_run->context);
+      swtch(&c->context, &p->context);
       // Process is done running for now.
       // It should have changed its p->state before coming back.
-      switch(p->state)
+      if(p->state== RUNNABLE)
       {
-        case RUNNABLE:
-          p_to_run->last_runnable_time= ticks;
-          break;
-        case SLEEPING:
-          p_to_run->last_sleeping_time = ticks;
-          break;
-        default:
-          break;
+        p->last_runnable_time= ticks;
       }
-      if(p_to_run->state!=RUNNING)
+      else if(p->state==SLEEPING)
       {
-        p_to_run->running_time += ticks-p_to_run->last_running_time;
+        p->last_sleeping_time = ticks;
+      }
+      if(p->state!=RUNNING)
+      {
+        p->running_time += ticks-p->last_running_time;
       }
       c->proc = 0;
     }  
-    release(&p_to_run->lock);
+    release(&p->lock);
   }
 }
 
@@ -715,8 +628,6 @@ fcfs_scheduler(void)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
-//todo delete printf
-//todo: to remember to check the assignment with one cpu
 void
 default_scheduler(void)
 {
@@ -731,9 +642,6 @@ default_scheduler(void)
 
     for(p = proc; p < &proc[NPROC]; p++) 
     {
-      //ticks++
-      //todo: check if the process is init or shell proc
-      //p->pid <3 
       if ((ticks-last_pause>=seconds_to_pause*TICKS_TO_SEC))
       {
         acquire(&p->lock);
@@ -749,16 +657,13 @@ default_scheduler(void)
           swtch(&c->context, &p->context);
           // Process is done running for now.
           // It should have changed its p->state before coming back.
-          switch(p->state)
+          if(p->state == RUNNABLE)
           {
-            case RUNNABLE:
-              p->last_runnable_time= ticks;
-              break;
-            case SLEEPING:
-              p->last_sleeping_time = ticks;
-              break;
-            default:
-              break;
+            p->last_runnable_time= ticks;
+          }
+          else if (p->state == SLEEPING)
+          {
+            p->last_sleeping_time = ticks;
           }
           if(p->state!=RUNNING)
           {
@@ -851,18 +756,7 @@ sleep(void *chan, struct spinlock *lk)
   release(lk);
 
   p->last_sleeping_time = ticks;
-  //todo:delete
-  /*
-  switch(p->state)
-  {
-    case RUNNING:
-      p->running_time += ticks-p->last_running_time;
-      break;
-    case RUNNABLE:
-      p->runnable_time += ticks-p->last_runnable_time;
-      break;
-  }
-  */
+
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
@@ -896,8 +790,6 @@ wakeup(void *chan)
     }
   }
 }
-//todo:delete the env.c file and syscall.c file
-//todo: what if runnable process get kiil? when it goes from runnable to zombie?
 
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
@@ -993,7 +885,7 @@ pause_system(int seconds)
 
   return 0;
 }
-//todo take out to function
+
 int
 kill_system(void)
 {
@@ -1018,20 +910,15 @@ kill_system(void)
   }
   return 0;
 }
-//todo: check panic rr
-//todo: delete test from makefile and in jeneral
-int //todo eden
-    //change in all places 
+int
 print_stats(void)
 {
-//todo- need lock? statslock?
  printf("Sleeping Processes Mean: %d\n", sleeping_processes_mean);
  printf("Running Processes Mean: %d\n", running_processes_mean);
  printf("Runnable Processes Mean: %d\n", running_time_mean);
  printf("Number of Processes: %d\n", runs_count);
  printf("Program Time: %d\n", program_time);
  printf("CPU Utilization: %d\n", cpu_utilization);
- //todo:
- printf("CPU Utilization percentage: %d%%\n", cpu_utilization_precent);
+ printf("CPU Utilization percentage: %d%%\n\n", cpu_utilization_precent);
  return 0;
 }

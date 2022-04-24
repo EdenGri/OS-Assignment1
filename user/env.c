@@ -81,7 +81,7 @@ void env(int size, int interval, char* env_name) {
             result = result * size;
         }
     }
-    printf("\n");
+    printf("\n\n");
   
 }
 

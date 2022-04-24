@@ -109,6 +109,7 @@ void            procdump(void);
 int             pause_system(int seconds);
 int             kill_system(void);
 int             print_stats(void);
+struct proc*    get_next_proc(int,int);
 void            sjf_scheduler(void); //__attribute__((noreturn));
 void            fcfs_scheduler(void); //__attribute__((noreturn));
 void            default_scheduler(void); //__attribute__((noreturn));
@@ -150,11 +151,6 @@ int             argaddr(int, uint64 *);
 int             fetchstr(uint64, char*, int);
 int             fetchaddr(uint64, uint64*);
 void            syscall();
-//todo:delete
-void            set_economic_mode_dem(int interval, int loop_size);
-void            set_economic_mode(int interval);
-
-//todo delete test set_economic_mode_dem
 
 // trap.c
 extern uint     ticks;
@@ -201,7 +197,6 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
-//todo:check if it 10 or 10,000,000
 #define TICKS_TO_SEC 10
 
 #define INIT_PID 1
