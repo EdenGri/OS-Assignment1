@@ -93,6 +93,10 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
 
+  //todo init
+  int cpu_num;
+  int index;
+  int next_proc_index;
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 
@@ -105,4 +109,10 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+};
+
+struct proc_list{
+    struct spinlock lock;
+    int head;
+    int tail;
 };
