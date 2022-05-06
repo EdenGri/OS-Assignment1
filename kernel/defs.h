@@ -106,6 +106,7 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 int             set_cpu(int);
 int             get_cpu(void);
+struct cpu*     get_cpu_by_cpu_num(int);
 //todo add our function in proc.c
 
 

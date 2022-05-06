@@ -16,7 +16,7 @@ extern uint64 cas(volatile void* addr, int expected, int newval);
 struct cpu cpus[NCPU];
 //todo delete? need this line?
 //struct processList CPUReadyProcess[NCPU]; cpu at index i in cpus will have processList in index i 
-
+//todo init cpu lists
 struct proc proc[NPROC];
 
 struct proc *initproc;
@@ -59,32 +59,40 @@ proc_mapstacks(pagetable_t kpgtbl) {
     kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   }
 }
-//todo implement -> git
+
+void
+init_list(struct proc_list* list, char* name)
+{
+  initlock(&list->lock, name);
+  list->head = -1;
+  list->tail = -1;
+}
+
+void
+init_process_lists(void)
+{
+  init_list(&unused_list,"unused_list_lock");
+  init_list(&sleeping_list->lock, "sleeping_list_lock");
+  init_list(&zombie_list->lock, "zombie_list_lock");
+}
+
+
 // initialize the proc table at boot time.
 void
 procinit(void)
 {
-    //todo delete:
-    //Initialize different global and CPU lists
-    /*
-    initlock(&unusedProccessess->listLock, "unusedListLock");
-    initlock(&sleepingProccessess->listLock, "sleepingListLock");
-    initlock(&zombieProccessess->listLock, "zombieListLock");
-
-    //Initialize cpuListLocks
-    struct processList *cpuList;
-    for(cpuList = processList; cpuList < &CPUReadyProcess[NPROC]; cpuList++) {
-        initlock(&cpuList->listLock, "cpuListLock");
-    }*/
+  init_process_lists();
   struct proc *p;
   
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
-  for(p = proc; p < &proc[NPROC]; p++) {
-      initlock(&p->lock, "proc");
-      //todo delete:
-      //initlock(&p->listLock, "procListLock");
-      p->kstack = KSTACK((int) (p - proc));
+  int i = 0;
+  for(p = proc; p < &proc[NPROC]; i++, p++) {
+    initlock(&p->lock, "proc");
+    p->kstack = KSTACK((int) (p - proc));
+    p->index = i;
+    p->next_proc_index = -1;
+    add_proc_to_tail(i, unused_list);
   }
 }
 
@@ -133,21 +141,16 @@ allocpid() {
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
 
-//todo impl -> git
 static struct proc*
 allocproc(void)
 {
-  struct proc *p;
-
-  for(p = proc; p < &proc[NPROC]; p++) {
-    acquire(&p->lock);
-    if(p->state == UNUSED) {
-      goto found;
-    } else {
-      release(&p->lock);
-    }
+  struct proc *p = pop(unused_list);
+  if(p == 0)
+  {
+    return FAIL;
   }
-  return 0;
+    acquire(&p->lock);
+    goto found;
 
 found:
   p->pid = allocpid();
@@ -174,6 +177,8 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  p->next_proc_index = -1;
+  
   return p;
 }
 
@@ -199,6 +204,8 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  remove_proc(p->index, zombie_list);
+  add_proc_to_tail(p->index, unused_list);
 }
 
 // Create a user page table for a given process,
@@ -350,6 +357,13 @@ fork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
+
+  acquire(&p->lock);
+  int father_cpu_num = p->cpu_num;
+  release(&p->lock);
+  np->cpu_num = father_cpu_num;
+  add_proc_to_tail(np->index, get_ready_list(father_cpu_num));
+
   release(&np->lock);
 
   return pid;
@@ -408,6 +422,14 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
+
+  //todo need?
+  /*
+  acquire(&p->lock);
+  p->cpu_num=0;
+  release(&p->lock);
+  */
+  add_proc_to_tail(p->index, zombie_list);
 
   release(&wait_lock);
 
@@ -478,27 +500,29 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  
+  init_list(c->ready_list, "ready_list");
+
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
+    p = pop(c->ready_list);
+    if(p != 0)
+    {
+        acquire(&p->lock);
+        if(p->state == RUNNABLE) {
+            // Switch to chosen process.  It is the process's job
+            // to release its lock and then reacquire it
+            // before jumping back to us.
+            p->state = RUNNING;
+            c->proc = p;
+            swtch(&c->context, &p->context);
 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-      }
-      release(&p->lock);
+            // Process is done running for now.
+            // It should have changed its p->state before coming back.
+            c->proc = 0;       
+        }
+        release(&p->lock);
     }
   }
 }
@@ -536,8 +560,9 @@ void
 yield(void)
 {
   struct proc *p = myproc();
-  acquire(&p->lock);
+  acquire(&p->lock);  
   p->state = RUNNABLE;
+  add_proc_to_tail(p->index,get_ready_list(p->cpu_num));
   sched();
   release(&p->lock);
 }
@@ -584,6 +609,7 @@ sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
+  add_proc_to_tail(p->index,sleeping_list);
 
   sched();
 
@@ -608,6 +634,8 @@ wakeup(void *chan)
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
+        remove_proc(p->index,sleeping_list);
+        add_proc_to_tail(p->index, get_ready_list(p->cpu_num));
       }
       release(&p->lock);
     }
@@ -701,7 +729,7 @@ procdump(void)
 int
 is_valid_cpu(int cpu_num)
 {
-    return cpu_num>0;
+    return cpu_num>=0 && cpu_num<NCPU;
 }
 
 //todo need other lock then p->lock?
@@ -719,6 +747,27 @@ set_cpu(int cpu_num){
     release(&p->lock);
     yield();
     return cpu_num;
+}
+
+struct proc_list*
+get_ready_list(int cpu_num)
+{
+    struct cpu* c = get_cpu_by_cpu_num(cpu_num);
+    if(c == 0)
+    {
+        return FAIL;
+    }
+    return c->ready_list;
+}
+
+struct cpu*
+get_cpu_by_cpu_num(int cpu_num)
+{
+    if(!is_valid_cpu(cpu_num))
+    {
+        return FAIL;
+    }
+    return &cpus[cpu_num];
 }
 
 int
