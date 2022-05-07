@@ -117,7 +117,7 @@ struct proc*        pop(struct proc_list* proc_list);
 int                 is_tail(struct proc* p, struct proc_list* proc_list);
 int                 is_remove_head(int p_index, struct proc_list* proc_list);
 int                 has_next(struct proc *p);
-int                 remove_head(struct proc_list* proc_list);
+struct proc*        remove_head(struct proc_list* proc_list);
 int                 remove_proc(int p_index, struct proc_list* proc_list);
 
 // swtch.S

@@ -181,32 +181,7 @@ struct proc*
 get_head(struct proc_list* proc_list)
 {
   printf("in get_head func\n");
-
-  struct proc* head_proc = get_proc_by_index(proc_list->head);
-  if(head_proc == 0){         
-      return FAIL;
-  }
-  return head_proc;
-}
-
-//important: before calling pop() dont hold: proc_list->lock
-struct proc*
-pop(struct proc_list* proc_list)
-{
-  printf("in pop func\n");
-
-  acquire(&proc_list->lock);
-  struct proc* p = get_head(proc_list);
-  if(p==0)
-  {
-    release(&proc_list->lock);
-    return FAIL;
-  }
-  if(remove_head(proc_list))
-  {
-    return p;
-  }
-  return FAIL;
+  return get_proc_by_index(proc_list->head);
 }
 
 //important: before calling is_tail() acquire proc_list->lock
@@ -239,31 +214,30 @@ has_next(struct proc *p)
 
 //important: before calling remove_head() acquire proc_list->lock
 //important: before calling remove_head() dont hold: head_proc->node_lock
-int
+//important: after calling remove_head() release proc_list->lock
+
+struct proc*
 remove_head(struct proc_list* proc_list)
 {
   printf("in remove_head func\n");
 
-  struct proc *p;
-  //todo imp
-  p = get_proc_by_index(proc_list->head);
-  if(p == 0){
-    release(&proc_list->lock);
-    return FAIL;
-  }
-  acquire(&p->node_lock);
-  proc_list->head = p->next_proc_index;
-  if(!has_next(p)) 
+  struct proc *p = get_head(proc_list);
+  if(p != 0)
   {
-    proc_list->tail = -1;
+    acquire(&p->node_lock);
+    proc_list->head = p->next_proc_index;
+    if(!has_next(p)) 
+    {
+      proc_list->tail = -1;
+    }
+    p->next_proc_index = -1;
+    release(&p->node_lock);
   }
-  p->next_proc_index = -1;
-  release(&p->node_lock);
-  release(&proc_list->lock);
-  return SUCCESS;
+  return p;
 }
 
 //important: before calling remove_head() dont hold: head_proc->node_lock and proc_list->lock and node_lock
+
 int
 remove_proc(int p_index, struct proc_list* proc_list)
 {
@@ -279,7 +253,13 @@ remove_proc(int p_index, struct proc_list* proc_list)
 
   if(is_remove_head(p_index, proc_list))
   {
-    return remove_head(proc_list);
+    int result = FAIL;
+    if(remove_head(proc_list))
+    {
+      result = SUCCESS;
+    }
+    release(&proc_list->lock);
+    return result;
   }
 
   //todo imp
@@ -453,8 +433,9 @@ static struct proc*
 allocproc(void)
 {
                                               printf("in allocproc func\n");
-
-  struct proc *p = pop(unused_list);
+  acquire(&unused_list->lock);
+  struct proc *p = remove_head(unused_list);
+  release(&unused_list->lock);
   if(p == 0)
   {
     return FAIL;
@@ -843,23 +824,26 @@ scheduler(void)
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    p = pop(c->ready_list);
+    struct proc_list* ready_list = c->ready_list;
+    acquire(&ready_list->lock);
+    p = remove_head(ready_list);
+    release(&ready_list->lock);
     if(p != 0)
     {
-        acquire(&p->lock);
-        if(p->state == RUNNABLE) {
-            // Switch to chosen process.  It is the process's job
-            // to release its lock and then reacquire it
-            // before jumping back to us.
-            p->state = RUNNING;
-            c->proc = p;
-            swtch(&c->context, &p->context);
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+          // Switch to chosen process.  It is the process's job
+          // to release its lock and then reacquire it
+          // before jumping back to us.
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
 
-            // Process is done running for now.
-            // It should have changed its p->state before coming back.
-            c->proc = 0;       
-        }
-        release(&p->lock);
+          // Process is done running for now.
+          // It should have changed its p->state before coming back.
+          c->proc = 0;       
+      }
+      release(&p->lock);
     }
   }
 }
