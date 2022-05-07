@@ -53,7 +53,6 @@ is_valid_cpu(int cpu_num)
   return cpu_num>=0 && cpu_num<NCPU;
 }
 
-//todo need other lock then p->lock?
 //todo need cas for get and set?
 //todo need to return -1?
 int
@@ -76,26 +75,25 @@ set_cpu(int cpu_num)
 struct proc_list*
 get_ready_list(int cpu_num)
 {
-      printf("in get_ready_list func\n");
+  printf("in get_ready_list func\n");
 
-    struct cpu* c = get_cpu_by_cpu_num(cpu_num);
-    if(c == 0)
-    {
-      return FAIL;
-    }
-    return c->ready_list;
+  struct cpu* c = get_cpu_by_cpu_num(cpu_num);
+  if(c == 0)
+  {
+    return FAIL;
+  }
+  return c->ready_list;
 }
 
 struct cpu*
 get_cpu_by_cpu_num(int cpu_num)
 {
-        printf("in get_cpu_by_cpu_num func\n");
-
-    if(!is_valid_cpu(cpu_num))
-    {
-        return FAIL;
-    }
-    return &cpus[cpu_num];
+  printf("in get_cpu_by_cpu_num func\n");
+  if(!is_valid_cpu(cpu_num))
+  {
+      return FAIL;
+  }
+  return &cpus[cpu_num];
 }
 //todo check set/get cpu 3.1.5
 int
@@ -119,8 +117,7 @@ get_cpu(void)
 int
 is_valid_proc_index(int index)
 {
-            printf("in is_valid_proc_index func\n");
-
+  printf("in is_valid_proc_index func\n");
   return (index >= 0 && index <NPROC);
 }
 
@@ -129,16 +126,14 @@ is_valid_proc_index(int index)
 int
 is_empty(struct proc_list* proc_list)
 {
-              printf("in is_empty func\n");
-
-  int head_proc_index = proc_list->head;
-  return head_proc_index==-1 || (!is_valid_proc_index(head_proc_index));
+  printf("in is_empty func\n");
+  return proc_list->head==-1 || (!is_valid_proc_index(proc_list->head));
 }
 //todo: what id the proc is unused?
 struct proc* 
 get_proc_by_index(int index)
 {
-                printf("in get_proc_by_index func\n");
+  printf("in get_proc_by_index func\n");
 
   if(is_valid_proc_index(index))
   {
@@ -148,11 +143,11 @@ get_proc_by_index(int index)
   return FAIL;
 }
 
-
+//important: before calling is_empty() dont hold: proc_list->lock and tail_proc->node_lock
 int
 add_proc_to_tail(int p_index, struct proc_list* proc_list)
 {
-                  printf("in add_proc_to_tail func\n");
+  printf("in add_proc_to_tail func\n");
 
   if(!is_valid_proc_index(p_index))
   {
@@ -172,10 +167,10 @@ add_proc_to_tail(int p_index, struct proc_list* proc_list)
     release(&proc_list->lock);
     return FAIL;
   }
-  acquire(&tail_proc->lock);
+  acquire(&tail_proc->node_lock);
   tail_proc->next_proc_index = p_index; 
   proc_list->tail=p_index;
-  release(&tail_proc->lock);
+  release(&tail_proc->node_lock);
   release(&proc_list->lock);
   return SUCCESS;
 }
@@ -185,20 +180,20 @@ add_proc_to_tail(int p_index, struct proc_list* proc_list)
 struct proc*
 get_head(struct proc_list* proc_list)
 {
-                    printf("in get_head func\n");
+  printf("in get_head func\n");
 
-    struct proc* head_proc; 
-    head_proc = get_proc_by_index(proc_list->head);
-    if(head_proc == 0){         
-        return FAIL;
-    }
-    return head_proc;
+  struct proc* head_proc = get_proc_by_index(proc_list->head);
+  if(head_proc == 0){         
+      return FAIL;
+  }
+  return head_proc;
 }
 
+//important: before calling pop() dont hold: proc_list->lock
 struct proc*
 pop(struct proc_list* proc_list)
 {
-                      printf("in pop func\n");
+  printf("in pop func\n");
 
   acquire(&proc_list->lock);
   struct proc* p = get_head(proc_list);
@@ -228,45 +223,47 @@ is_tail(struct proc* p, struct proc_list* proc_list)
 int
 is_remove_head(int p_index, struct proc_list* proc_list)
 {
-                        printf("in is_remove_head func\n");
+  printf("in is_remove_head func\n");
 
-    return (p_index==proc_list->head) && (p_index!=-1);
+  return (p_index==proc_list->head) && (p_index!=-1);
 }
 
 
-//important: before calling has_next() acquire p->lock
-//important: after calling has_next() release p->lock
+//important: before calling has_next() acquire p->node_lock
+//important: after calling has_next() release p->node_lock
 int
 has_next(struct proc *p)
 {
-    return p->next_proc_index != -1;
+  return p->next_proc_index != -1;
 }
 
 //important: before calling remove_head() acquire proc_list->lock
+//important: before calling remove_head() dont hold: head_proc->node_lock
 int
 remove_head(struct proc_list* proc_list)
 {
-                          printf("in remove_head func\n");
+  printf("in remove_head func\n");
 
-    struct proc *pred, *curr;
-    //todo imp
-    pred = get_proc_by_index(proc_list->head);
-    if(pred == 0){
-      release(&proc_list->lock);
-      return FAIL;
-    }
-    acquire(&pred->node_lock);
-    proc_list->head = pred->next_proc_index;
-    if(!has_next(pred)) 
-    {
-      proc_list->tail = -1;
-    }
-    pred->next_proc_index = -1;
-    release(&pred->node_lock);
+  struct proc *p;
+  //todo imp
+  p = get_proc_by_index(proc_list->head);
+  if(p == 0){
     release(&proc_list->lock);
-    return SUCCESS;
+    return FAIL;
+  }
+  acquire(&p->node_lock);
+  proc_list->head = p->next_proc_index;
+  if(!has_next(p)) 
+  {
+    proc_list->tail = -1;
+  }
+  p->next_proc_index = -1;
+  release(&p->node_lock);
+  release(&proc_list->lock);
+  return SUCCESS;
 }
 
+//important: before calling remove_head() dont hold: head_proc->node_lock and proc_list->lock and node_lock
 int
 remove_proc(int p_index, struct proc_list* proc_list)
 {
@@ -292,9 +289,10 @@ remove_proc(int p_index, struct proc_list* proc_list)
     release(&proc_list->lock);
     return FAIL;
   }
-  acquire(&pred->node_lock);
 
+  acquire(&pred->node_lock);
   release(&proc_list->lock);
+  
   if(!has_next(pred)) 
   {
     release(&pred->node_lock);
@@ -390,7 +388,7 @@ procinit(void)
   int i = 0;
   for(p = proc; p < &proc[NPROC]; i++, p++) {
     initlock(&p->lock, "proc");
-    init_lock(&p->node_lock, "node_lock");
+    initlock(&p->node_lock, "node_lock");
     p->kstack = KSTACK((int) (p - proc));
     p->index = i;
     p->next_proc_index = -1;
