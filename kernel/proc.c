@@ -14,15 +14,10 @@
 extern uint64 cas(volatile void* addr, int expected, int newval);
 
 struct cpu cpus[NCPU];
-//todo delete? need this line?
-//struct processList CPUReadyProcess[NCPU]; cpu at index i in cpus will have processList in index i 
-//todo init cpu lists
+
 struct proc proc[NPROC];
 
 struct proc *initproc;
-
-//todo delete:
-//struct processList systemProccesses[2]; //[unusedProcesses, sleepingProcesses, zombieProccesses] - used to initialize the processLists in advance
 
 int nextpid = 1;
 
@@ -71,9 +66,9 @@ set_cpu(int cpu_num)
       return -1;
   }
   struct proc* p = myproc();
-  acquire(&p->lock); 
+  acquire(&p->node_lock); 
   p->cpu_num = cpu_num; 
-  release(&p->lock);
+  release(&p->node_lock);
   yield();
   return cpu_num;
 }
@@ -109,9 +104,9 @@ get_cpu(void)
           printf("in get_cpu func\n");
 
   struct proc* p = myproc();
-  acquire(&p->lock); 
+  acquire(&p->node_lock); 
   int curr_cpu_num = p->cpu_num;
-  release(&p->lock);
+  release(&p->node_lock);
   return curr_cpu_num;
 }
 
@@ -207,9 +202,14 @@ pop(struct proc_list* proc_list)
 
   acquire(&proc_list->lock);
   struct proc* p = get_head(proc_list);
-  if(p!=0 && remove_head(proc_list))
+  if(p==0)
   {
-      return p;
+    release(&proc_list->lock);
+    return FAIL;
+  }
+  if(remove_head(proc_list))
+  {
+    return p;
   }
   return FAIL;
 }
@@ -252,33 +252,19 @@ remove_head(struct proc_list* proc_list)
     //todo imp
     pred = get_proc_by_index(proc_list->head);
     if(pred == 0){
-        release(&proc_list->lock);
-        return FAIL;
-    }
-    acquire(&pred->lock);
-
-    if(has_next(pred)) 
-    {
-      curr = get_proc_by_index(pred->next_proc_index); 
-      if(curr == 0){
-        release(&pred->lock);
-        release(&proc_list->lock);
-        return FAIL;
-      }
-      proc_list->head = pred->next_proc_index;
-      pred->next_proc_index = -1;
       release(&proc_list->lock);
-      release(&pred->lock);
-      return SUCCESS;
+      return FAIL;
     }
-    else 
+    acquire(&pred->node_lock);
+    proc_list->head = pred->next_proc_index;
+    if(!has_next(pred)) 
     {
-      proc_list->head = -1;
       proc_list->tail = -1;
-      release(&pred->lock);
-      release(&proc_list->lock);
-      return SUCCESS;
     }
+    pred->next_proc_index = -1;
+    release(&pred->node_lock);
+    release(&proc_list->lock);
+    return SUCCESS;
 }
 
 int
@@ -306,12 +292,12 @@ remove_proc(int p_index, struct proc_list* proc_list)
     release(&proc_list->lock);
     return FAIL;
   }
-  acquire(&pred->lock);
+  acquire(&pred->node_lock);
 
   release(&proc_list->lock);
   if(!has_next(pred)) 
   {
-    release(&pred->lock);
+    release(&pred->node_lock);
     return FAIL;
   }
   //todo change to function
@@ -320,10 +306,10 @@ remove_proc(int p_index, struct proc_list* proc_list)
     curr = get_proc_by_index(pred->next_proc_index);
     if(curr == 0)
     {
-      release(&pred->lock);
+      release(&pred->node_lock);
       return FAIL;
     }
-    acquire(&curr->lock);
+    acquire(&curr->node_lock);
     if (p_index == curr->index)
     {
       acquire(&proc_list->lock);
@@ -334,14 +320,14 @@ remove_proc(int p_index, struct proc_list* proc_list)
       release(&proc_list->lock);
       pred->next_proc_index = curr->next_proc_index;
       curr->next_proc_index = -1;
-      release(&curr->lock);
-      release(&pred->lock);
+      release(&curr->node_lock);
+      release(&pred->node_lock);
       return SUCCESS;
     }
-    release(&pred->lock);
+    release(&pred->node_lock);
     pred = curr;
   }
-  release(&curr->lock);
+  release(&curr->node_lock);
   return FAIL;
 } 
 
@@ -404,6 +390,7 @@ procinit(void)
   int i = 0;
   for(p = proc; p < &proc[NPROC]; i++, p++) {
     initlock(&p->lock, "proc");
+    init_lock(&p->node_lock, "node_lock");
     p->kstack = KSTACK((int) (p - proc));
     p->index = i;
     p->next_proc_index = -1;
@@ -657,6 +644,9 @@ fork(void)
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
+  acquire(&p->node_lock);
+  int father_cpu_num = p->cpu_num;
+  release(&p->node_lock);
 
   // Allocate process.
   if((np = allocproc()) == 0){
@@ -696,13 +686,13 @@ fork(void)
   acquire(&np->lock);
   np->state = RUNNABLE;
 
-  acquire(&p->lock);
-  int father_cpu_num = p->cpu_num;
-  release(&p->lock);
-  np->cpu_num = father_cpu_num;
-  add_proc_to_tail(np->index, get_ready_list(father_cpu_num));
-
   release(&np->lock);
+  acquire(&np->node_lock);
+  np->cpu_num = father_cpu_num;
+  np->next_proc_index = -1;
+  release(&np->node_lock);
+
+  add_proc_to_tail(np->index, get_ready_list(father_cpu_num));
 
   return pid;
 }
@@ -771,6 +761,10 @@ exit(int status)
   p->cpu_num=0;
   release(&p->lock);
   */
+  acquire(&p->node_lock);
+  p->cpu_num = 0;
+  release(&p->node_lock);
+
   add_proc_to_tail(p->index, zombie_list);
 
   release(&wait_lock);
@@ -786,7 +780,6 @@ int
 wait(uint64 addr)
 {
                                                               printf("in wait func\n");
-
   struct proc *np;
   int havekids, pid;
   struct proc *p = myproc();
@@ -912,7 +905,10 @@ yield(void)
   struct proc *p = myproc();
   acquire(&p->lock);  
   p->state = RUNNABLE;
-  add_proc_to_tail(p->index,get_ready_list(p->cpu_num));
+  acquire(&p->node_lock);
+  int cpu_num = p->cpu_num;
+  release(&p->node_lock);
+  add_proc_to_tail(p->index,get_ready_list(cpu_num));
   sched();
   release(&p->lock);
 }
@@ -1000,6 +996,8 @@ wakeup(void *chan)
       release(&sleeping_list->lock);
       return;
     }
+
+    acquire(&pred->node_lock);
     release(&sleeping_list->lock);
     acquire(&pred->lock);
   
@@ -1007,32 +1005,36 @@ wakeup(void *chan)
     {
       pred->state = RUNNABLE;
       //todo: check if we need two locks for one proc?
-      release(&pred->lock);
+      int cpu_num = pred->cpu_num;
+      release(&pred->node_lock);
       remove_proc(pred->index,sleeping_list);
-      add_proc_to_tail(pred->index, get_ready_list(pred->cpu_num));
+      add_proc_to_tail(pred->index, get_ready_list(cpu_num));
+      release(&pred->lock);
       continue;
     }
-
+    release(&pred->lock);
+    found_proc_to_wakeup = FALSE;
     while(has_next(pred))
     {
       curr = get_proc_by_index(pred->next_proc_index);
+
       if(curr==0)
       {
         release(&pred->lock);
         return;
       }
-      //todo: check if we need two locks for one proc?
-      release(&pred->lock);
+      acquire(&curr->node_lock);
+      release(&pred->node_lock);
       pred = curr;
       acquire(&pred->lock);
 
       if(pred->chan == chan) {
         pred->state = RUNNABLE;
-        struct proc_list* ready_list = get_ready_list(pred->cpu_num);
-        int pred_index = pred->index;
+        int cpu_num = pred->cpu_num;
+        release(&pred->node_lock);
+        remove_proc(pred->index,sleeping_list);
+        add_proc_to_tail(pred->index, get_ready_list(cpu_num));
         release(&pred->lock);
-        remove_proc(pred_index,sleeping_list);
-        add_proc_to_tail(pred_index, ready_list);
         found_proc_to_wakeup = TRUE;
         break;
       }
@@ -1040,6 +1042,7 @@ wakeup(void *chan)
     }
     if(!found_proc_to_wakeup)
     {
+      release(&pred->node_lock);
       return;
     }
   }
