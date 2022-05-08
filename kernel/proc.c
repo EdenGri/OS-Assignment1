@@ -19,6 +19,10 @@ struct proc proc[NPROC];
 
 struct proc *initproc;
 
+//todo:
+struct proc_list procs_lists[3]; 
+struct proc_list ready_lists[NCPU];
+
 int nextpid = 1;
 
 //todo : pointer for the lists?
@@ -39,289 +43,11 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
-
-
-
-
-
-//-------------------------------------------------------proc_list-------------------------------------------------------------
-//todo: check when the set_cpu failed
-int
-is_valid_cpu(int cpu_num)
-{
-  printf("in is_valid_cpu func\n");
-  return cpu_num>=0 && cpu_num<NCPU;
-}
-
-//todo need cas for get and set?
-//todo need to return -1?
-int
-set_cpu(int cpu_num)
-{
-    printf("in set_cpu func\n");
-
-  if(!is_valid_cpu(cpu_num))
-  {
-      return -1;
-  }
-  struct proc* p = myproc();
-  acquire(&p->node_lock); 
-  p->cpu_num = cpu_num; 
-  release(&p->node_lock);
-  yield();
-  return cpu_num;
-}
-
-struct proc_list*
-get_ready_list(int cpu_num)
-{
-  printf("in get_ready_list func\n");
-
-  struct cpu* c = get_cpu_by_cpu_num(cpu_num);
-  if(c == 0)
-  {
-    return FAIL;
-  }
-  return c->ready_list;
-}
-
-struct cpu*
-get_cpu_by_cpu_num(int cpu_num)
-{
-  printf("in get_cpu_by_cpu_num func\n");
-  if(!is_valid_cpu(cpu_num))
-  {
-      return FAIL;
-  }
-  return &cpus[cpu_num];
-}
-//todo check set/get cpu 3.1.5
-int
-get_cpu(void)
-{
-          printf("in get_cpu func\n");
-
-  struct proc* p = myproc();
-  acquire(&p->node_lock); 
-  int curr_cpu_num = p->cpu_num;
-  release(&p->node_lock);
-  return curr_cpu_num;
-}
-
-
-//todo check the changes in the assinment in part 1
-//todo cas we need to change 0 to 1?
-
-//todo need lock on list? the lock in the function or before and after functions?
-//todo imp is_valid_proc_index
-int
-is_valid_proc_index(int index)
-{
-  printf("in is_valid_proc_index func\n");
-  return (index >= 0 && index <NPROC);
-}
-
-//important: before calling is_empty() acquire proc_list->lock
-//important: is_empty() not realease proc_list->lock
-int
-is_empty(struct proc_list* proc_list)
-{
-  printf("in is_empty func\n");
-  return proc_list->head==-1 || (!is_valid_proc_index(proc_list->head));
-}
-//todo: what id the proc is unused?
-struct proc* 
-get_proc_by_index(int index)
-{
-  printf("in get_proc_by_index func\n");
-
-  if(is_valid_proc_index(index))
-  {
-    struct proc* p  = &proc[index];
-    return p;
-  }
-  return FAIL;
-}
-
-//important: before calling is_empty() dont hold: proc_list->lock and tail_proc->node_lock
-int
-add_proc_to_tail(int p_index, struct proc_list* proc_list)
-{
-  printf("in add_proc_to_tail func\n");
-
-  if(!is_valid_proc_index(p_index))
-  {
-    return FAIL;
-  }
-  acquire(&proc_list->lock);
-  if(is_empty(proc_list))
-  { 
-    proc_list->head=p_index;
-    proc_list->tail=p_index;
-    release(&proc_list->lock);
-    return SUCCESS;
-  }
-  struct proc* tail_proc = get_proc_by_index(proc_list->tail);
-  if(tail_proc == 0)
-  {
-    release(&proc_list->lock);
-    return FAIL;
-  }
-  acquire(&tail_proc->node_lock);
-  tail_proc->next_proc_index = p_index; 
-  proc_list->tail=p_index;
-  release(&tail_proc->node_lock);
-  release(&proc_list->lock);
-  return SUCCESS;
-}
-
-//important: before calling get_head() acquire proc_list->lock
-//important: get_head() not realease proc_list->lock
-struct proc*
-get_head(struct proc_list* proc_list)
-{
-  printf("in get_head func\n");
-  return get_proc_by_index(proc_list->head);
-}
-
-//important: before calling is_tail() acquire proc_list->lock
-//important: after calling is_tail() release proc_list->lock
-int
-is_tail(struct proc* p, struct proc_list* proc_list)
-{
-  return p->index == proc_list->tail; 
-}
-
-
-//important: before calling is_remove_head() acquire proc_list->lock
-//important: after calling is_remove_head() release proc_list->lock
-int
-is_remove_head(int p_index, struct proc_list* proc_list)
-{
-  printf("in is_remove_head func\n");
-
-  return (p_index==proc_list->head) && (p_index!=-1);
-}
-
-
-//important: before calling has_next() acquire p->node_lock
-//important: after calling has_next() release p->node_lock
-int
-has_next(struct proc *p)
-{
-  return p->next_proc_index != -1;
-}
-
-//important: before calling remove_head() acquire proc_list->lock
-//important: before calling remove_head() dont hold: head_proc->node_lock
-//important: after calling remove_head() release proc_list->lock
-
-struct proc*
-remove_head(struct proc_list* proc_list)
-{
-  printf("in remove_head func\n");
-
-  struct proc *p = get_head(proc_list);
-  if(p != 0)
-  {
-    acquire(&p->node_lock);
-    proc_list->head = p->next_proc_index;
-    if(!has_next(p)) 
-    {
-      proc_list->tail = -1;
-    }
-    p->next_proc_index = -1;
-    release(&p->node_lock);
-  }
-  return p;
-}
-
-//important: before calling remove_head() dont hold: head_proc->node_lock and proc_list->lock and node_lock
-
-int
-remove_proc(int p_index, struct proc_list* proc_list)
-{
-                            printf("in remove_proc func\n");
-
-  struct proc *pred, *curr;
-  acquire(&proc_list->lock);
-  if(is_empty(proc_list))
-  {
-    release(&proc_list->lock);
-    return FAIL;
-  }
-
-  if(is_remove_head(p_index, proc_list))
-  {
-    int result = FAIL;
-    if(remove_head(proc_list))
-    {
-      result = SUCCESS;
-    }
-    release(&proc_list->lock);
-    return result;
-  }
-
-  //todo imp
-  pred = get_proc_by_index(proc_list->head);
-  if(pred == 0)
-  {
-    release(&proc_list->lock);
-    return FAIL;
-  }
-
-  acquire(&pred->node_lock);
-  release(&proc_list->lock);
-  
-  if(!has_next(pred)) 
-  {
-    release(&pred->node_lock);
-    return FAIL;
-  }
-  //todo change to function
-  while (has_next(pred)) 
-  {
-    curr = get_proc_by_index(pred->next_proc_index);
-    if(curr == 0)
-    {
-      release(&pred->node_lock);
-      return FAIL;
-    }
-    acquire(&curr->node_lock);
-    if (p_index == curr->index)
-    {
-      acquire(&proc_list->lock);
-      if(is_tail(curr, proc_list))
-      {
-        proc_list->tail = pred->index;
-      }
-      release(&proc_list->lock);
-      pred->next_proc_index = curr->next_proc_index;
-      curr->next_proc_index = -1;
-      release(&curr->node_lock);
-      release(&pred->node_lock);
-      return SUCCESS;
-    }
-    release(&pred->node_lock);
-    pred = curr;
-  }
-  release(&curr->node_lock);
-  return FAIL;
-} 
-
-//-------------------------------------------------------proc_list------------------------------------------------------------
-
-
-
-
-
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
 void
 proc_mapstacks(pagetable_t kpgtbl) {
-                              printf("in proc_mapstacks func\n");
-
   struct proc *p;
   
   for(p = proc; p < &proc[NPROC]; p++) {
@@ -336,8 +62,6 @@ proc_mapstacks(pagetable_t kpgtbl) {
 void
 init_list(struct proc_list* list, char* name)
 {
-                                printf("in init_list func\n");
-
   initlock(&list->lock, name);
   list->head = -1;
   list->tail = -1;
@@ -346,11 +70,16 @@ init_list(struct proc_list* list, char* name)
 void
 init_process_lists(void)
 {
-                                  printf("in init_process_lists func\n");
-
+  unused_list = &procs_lists[0];
+  sleeping_list = &procs_lists[1];
+  zombie_list = &procs_lists[2];
   init_list(unused_list,"unused_list_lock");
   init_list(sleeping_list, "sleeping_list_lock");
   init_list(zombie_list, "zombie_list_lock");
+  struct proc_list *ready_list;
+  for(ready_list = ready_lists; ready_list < &ready_lists[NCPU]; ready_list++) {
+    init_list(ready_list, "ready_list");
+  }
 }
 
 
@@ -358,9 +87,9 @@ init_process_lists(void)
 void
 procinit(void)
 {
-                                    printf("in procinit func\n");
 
   init_process_lists();
+
   struct proc *p;
   
   initlock(&pid_lock, "nextpid");
@@ -382,8 +111,6 @@ procinit(void)
 int
 cpuid()
 {
-                                      printf("in cpuid func\n");
-
   int id = r_tp();
   return id;
 }
@@ -392,8 +119,6 @@ cpuid()
 // Interrupts must be disabled.
 struct cpu*
 mycpu(void) {
-                                        printf("in mycpu func\n");
-
   int id = cpuid();
   struct cpu *c = &cpus[id];
   return c;
@@ -402,8 +127,6 @@ mycpu(void) {
 // Return the current struct proc *, or zero if none.
 struct proc*
 myproc(void) {
-                                          printf("in myproc func\n");
-
   push_off();
   struct cpu *c = mycpu();
   struct proc *p = c->proc;
@@ -413,9 +136,8 @@ myproc(void) {
 
 int
 allocpid() {
-                                            printf("in allocpid func\n");
-
   int pid;
+  
   do
   {
     pid = nextpid;
@@ -432,8 +154,7 @@ allocpid() {
 static struct proc*
 allocproc(void)
 {
-                                              printf("in allocproc func\n");
-  acquire(&unused_list->lock);
+   acquire(&unused_list->lock);
   struct proc *p = remove_head(unused_list);
   release(&unused_list->lock);
   if(p == 0)
@@ -481,7 +202,6 @@ found:
 static void
 freeproc(struct proc *p)
 {
-                                                printf("in freeproc func\n");
 
   if(p->trapframe)
     kfree((void*)p->trapframe);
@@ -506,8 +226,6 @@ freeproc(struct proc *p)
 pagetable_t
 proc_pagetable(struct proc *p)
 {
-                                                  printf("in proc_pagetable func\n");
-
   pagetable_t pagetable;
 
   // An empty page table.
@@ -541,8 +259,6 @@ proc_pagetable(struct proc *p)
 void
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
-                                                    printf("in proc_freepagetable func\n");
-
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
   uvmfree(pagetable, sz);
@@ -565,8 +281,6 @@ uchar initcode[] = {
 void
 userinit(void)
 {
-                                                      printf("in userinit func\n");
-
   struct proc *p;
 
   p = allocproc();
@@ -585,9 +299,15 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
+
   release(&p->lock);
   int first_cpu_num = 0;
-  add_proc_to_tail(p->index, get_ready_list(first_cpu_num));
+  //todo
+  struct proc_list* ready_list =  get_ready_list(first_cpu_num);
+  if(ready_list)
+  {
+    add_proc_to_tail(p->index,ready_list);
+  }
 }
 
 // Grow or shrink user memory by n bytes.
@@ -595,8 +315,6 @@ userinit(void)
 int
 growproc(int n)
 {
-                                                        printf("in growproc func\n");
-
   uint sz;
   struct proc *p = myproc();
 
@@ -618,8 +336,7 @@ growproc(int n)
 int
 fork(void)
 {
-                                                          printf("in fork func\n");
-
+  
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
@@ -639,7 +356,6 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
-
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -671,7 +387,11 @@ fork(void)
   np->next_proc_index = -1;
   release(&np->node_lock);
 
-  add_proc_to_tail(np->index, get_ready_list(father_cpu_num));
+  struct proc_list* ready_list = get_ready_list(father_cpu_num);
+  if(ready_list)
+  {
+    add_proc_to_tail(np->index,ready_list);
+  }
 
   return pid;
 }
@@ -681,8 +401,6 @@ fork(void)
 void
 reparent(struct proc *p)
 {
-                                                            printf("in reparent func\n");
-
   struct proc *pp;
 
   for(pp = proc; pp < &proc[NPROC]; pp++){
@@ -700,8 +418,7 @@ reparent(struct proc *p)
 void
 exit(int status)
 {
-                                                              printf("in exit func\n");
-
+ 
   struct proc *p = myproc();
 
   if(p == initproc)
@@ -733,7 +450,7 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
-
+  printf("%d\n", p->pid);
   //todo need?
   /*
   acquire(&p->lock);
@@ -758,7 +475,6 @@ exit(int status)
 int
 wait(uint64 addr)
 {
-                                                              printf("in wait func\n");
   struct proc *np;
   int havekids, pid;
   struct proc *p = myproc();
@@ -818,13 +534,13 @@ scheduler(void)
 
   struct proc *p;
   struct cpu *c = mycpu();
-  init_list(c->ready_list, "ready_list");
+  struct proc_list* ready_list = get_ready_list(cpuid());
+
 
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    struct proc_list* ready_list = c->ready_list;
     acquire(&ready_list->lock);
     p = remove_head(ready_list);
     release(&ready_list->lock);
@@ -864,13 +580,31 @@ sched(void)
   struct proc *p = myproc();
 
   if(!holding(&p->lock))
+  {
+    printf("in sched func\n");
     panic("sched p->lock");
+  }
+                                                                    
   if(mycpu()->noff != 1)
+  {
+    printf("in sched func\n");
     panic("sched locks");
+  }
+                                                                    
   if(p->state == RUNNING)
+  {
     panic("sched running");
+    printf("in sched func\n");
+  }
+    
+
   if(intr_get())
+  {
+    printf("in sched func\n");
+
     panic("sched interruptible");
+  }
+                                                                    
 
   intena = mycpu()->intena;
   swtch(&p->context, &mycpu()->context);
@@ -890,7 +624,13 @@ yield(void)
   acquire(&p->node_lock);
   int cpu_num = p->cpu_num;
   release(&p->node_lock);
-  add_proc_to_tail(p->index,get_ready_list(cpu_num));
+
+  struct proc_list* ready_list = get_ready_list(cpu_num);
+  if(ready_list)
+  {
+    add_proc_to_tail(p->index,ready_list);
+  }
+  
   sched();
   release(&p->lock);
 }
@@ -1144,3 +884,274 @@ procdump(void)
     printf("\n");
   }
 }
+
+
+
+
+//-------------------------------------------------------proc_list-------------------------------------------------------------
+//todo: check when the set_cpu failed
+int
+is_valid_cpu(int cpu_num)
+{
+  printf("in is_valid_cpu func\n");
+  return cpu_num>=0 && cpu_num<NCPU;
+}
+
+//todo need cas for get and set?
+//todo need to return -1?
+int
+set_cpu(int cpu_num)
+{
+    printf("in set_cpu func\n");
+
+  if(!is_valid_cpu(cpu_num))
+  {
+      return -1;
+  }
+  struct proc* p = myproc();
+  acquire(&p->node_lock); 
+  p->cpu_num = cpu_num; 
+  release(&p->node_lock);
+  yield();
+  return cpu_num;
+}
+
+struct proc_list*
+get_ready_list(int cpu_num)
+{
+  if(!is_valid_cpu(cpu_num))
+  {
+    return FAIL;
+  }
+  return &ready_lists[cpu_num];
+}
+
+struct cpu*
+get_cpu_by_cpu_num(int cpu_num)
+{
+  printf("in get_cpu_by_cpu_num func\n");
+  if(!is_valid_cpu(cpu_num))
+  {
+      return FAIL;
+  }
+  return &cpus[cpu_num];
+}
+//todo check set/get cpu 3.1.5
+int
+get_cpu(void)
+{
+          printf("in get_cpu func\n");
+
+  struct proc* p = myproc();
+  acquire(&p->node_lock); 
+  int curr_cpu_num = p->cpu_num;
+  release(&p->node_lock);
+  return curr_cpu_num;
+}
+
+
+//todo check the changes in the assinment in part 1
+//todo cas we need to change 0 to 1?
+
+//todo need lock on list? the lock in the function or before and after functions?
+//todo imp is_valid_proc_index
+int
+is_valid_proc_index(int index)
+{
+  printf("in is_valid_proc_index func\n");
+  return (index >= 0 && index <NPROC);
+}
+
+//important: before calling is_empty() acquire proc_list->lock
+//important: is_empty() not realease proc_list->lock
+int
+is_empty(struct proc_list* proc_list)
+{
+  printf("in is_empty func\n");
+  return proc_list->head==-1 || (!is_valid_proc_index(proc_list->head));
+}
+//todo: what id the proc is unused?
+struct proc* 
+get_proc_by_index(int index)
+{
+  printf("in get_proc_by_index func\n");
+
+  if(is_valid_proc_index(index))
+  {
+    struct proc* p  = &proc[index];
+    return p;
+  }
+  return FAIL;
+}
+
+//important: before calling is_empty() dont hold: proc_list->lock and tail_proc->node_lock
+int
+add_proc_to_tail(int p_index, struct proc_list* proc_list)
+{
+  printf("in add_proc_to_tail func\n");
+
+  if(!is_valid_proc_index(p_index))
+  {
+    return FAIL;
+  }
+  acquire(&proc_list->lock);
+  if(is_empty(proc_list))
+  { 
+    proc_list->head=p_index;
+    proc_list->tail=p_index;
+    release(&proc_list->lock);
+    return SUCCESS;
+  }
+  struct proc* tail_proc = get_proc_by_index(proc_list->tail);
+  if(tail_proc == 0)
+  {
+    release(&proc_list->lock);
+    return FAIL;
+  }
+  acquire(&tail_proc->node_lock);
+  tail_proc->next_proc_index = p_index; 
+  proc_list->tail=p_index;
+  release(&tail_proc->node_lock);
+  release(&proc_list->lock);
+  return SUCCESS;
+}
+
+//important: before calling get_head() acquire proc_list->lock
+//important: get_head() not realease proc_list->lock
+struct proc*
+get_head(struct proc_list* proc_list)
+{
+  printf("in get_head func\n");
+  return get_proc_by_index(proc_list->head);
+}
+
+//important: before calling is_tail() acquire proc_list->lock
+//important: after calling is_tail() release proc_list->lock
+int
+is_tail(struct proc* p, struct proc_list* proc_list)
+{
+  return p->index == proc_list->tail; 
+}
+
+
+//important: before calling is_remove_head() acquire proc_list->lock
+//important: after calling is_remove_head() release proc_list->lock
+int
+is_remove_head(int p_index, struct proc_list* proc_list)
+{
+  printf("in is_remove_head func\n");
+
+  return (p_index==proc_list->head) && (p_index!=-1);
+}
+
+
+//important: before calling has_next() acquire p->node_lock
+//important: after calling has_next() release p->node_lock
+int
+has_next(struct proc *p)
+{
+  return p->next_proc_index != -1;
+}
+
+//important: before calling remove_head() acquire proc_list->lock
+//important: before calling remove_head() dont hold: head_proc->node_lock
+//important: after calling remove_head() release proc_list->lock
+
+struct proc*
+remove_head(struct proc_list* proc_list)
+{
+  printf("in remove_head func\n");
+
+  struct proc *p = get_head(proc_list);
+  if(p != 0)
+  {
+    acquire(&p->node_lock);
+    proc_list->head = p->next_proc_index;
+    if(!has_next(p)) 
+    {
+      proc_list->tail = -1;
+    }
+    p->next_proc_index = -1;
+    release(&p->node_lock);
+  }
+  return p;
+}
+
+//important: before calling remove_head() dont hold: head_proc->node_lock and proc_list->lock and node_lock
+
+int
+remove_proc(int p_index, struct proc_list* proc_list)
+{
+                            printf("in remove_proc func\n");
+
+  struct proc *pred, *curr;
+  acquire(&proc_list->lock);
+  if(is_empty(proc_list))
+  {
+    release(&proc_list->lock);
+    return FAIL;
+  }
+
+  if(is_remove_head(p_index, proc_list))
+  {
+    int result = FAIL;
+    if(remove_head(proc_list))
+    {
+      result = SUCCESS;
+    }
+    release(&proc_list->lock);
+    return result;
+  }
+
+  //todo imp
+  pred = get_proc_by_index(proc_list->head);
+  if(pred == 0)
+  {
+    release(&proc_list->lock);
+    return FAIL;
+  }
+
+  acquire(&pred->node_lock);
+  release(&proc_list->lock);
+  
+  if(!has_next(pred)) 
+  {
+    release(&pred->node_lock);
+    return FAIL;
+  }
+  //todo change to function
+  while (has_next(pred)) 
+  {
+    curr = get_proc_by_index(pred->next_proc_index);
+    if(curr == 0)
+    {
+      release(&pred->node_lock);
+      return FAIL;
+    }
+    acquire(&curr->node_lock);
+    if (p_index == curr->index)
+    {
+      acquire(&proc_list->lock);
+      if(is_tail(curr, proc_list))
+      {
+        proc_list->tail = pred->index;
+      }
+      release(&proc_list->lock);
+      pred->next_proc_index = curr->next_proc_index;
+      curr->next_proc_index = -1;
+      release(&curr->node_lock);
+      release(&pred->node_lock);
+      return SUCCESS;
+    }
+    release(&pred->node_lock);
+    pred = curr;
+  }
+  release(&curr->node_lock);
+  return FAIL;
+} 
+
+//-------------------------------------------------------proc_list------------------------------------------------------------
+
+
+
+

@@ -10,6 +10,8 @@ volatile static int started = 0;
 void
 main()
 {
+  //todo delete printf
+  printf("-------------------------------------------------------in main-------------------------------------\n\n\n\n\n\n");
   if(cpuid() == 0){
     consoleinit();
     printfinit();
