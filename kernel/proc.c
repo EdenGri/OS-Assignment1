@@ -65,6 +65,7 @@ init_list(struct proc_list* list, char* name)
   initlock(&list->lock, name);
   list->head = -1;
   list->tail = -1;
+  list->insertion_count = 0;
 }
 
 void
@@ -333,18 +334,23 @@ growproc(int n)
 int
 get_min_cpu(void)
 {
-  struct cpu* c;
-  int min_proc_count;
+  uint64 min_insertion_count = -1;
   int min_cpu_num;
   int cpu_num = 0;
-  for(c = cpus; c<&cpus[NCPU]; cpu_num++, c++)
+  struct proc_list* ready_list;
+  struct proc_list* ready_list_to_update;
+  do
   {
-    if(c->proc_count<min_proc_count)
+    for(ready_list = ready_lists; ready_list<&ready_lists[NCPU]; ready_list++, cpu_num++)
     {
-      min_proc_count = c->proc_count;
-      min_cpu_num = cpu_num;
+      if(ready_list->insertion_count<min_insertion_count || min_insertion_count ==-1)
+      {
+        min_insertion_count = ready_list->insertion_count;
+        min_cpu_num = cpu_num;
+        ready_list_to_update = ready_list;
+      }
     }
-  }
+  } while (cas(&(ready_list_to_update->insertion_count), min_insertion_count, (min_insertion_count+1)));
   return min_cpu_num;
 }
 
@@ -357,9 +363,17 @@ fork(void)
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
-  acquire(&p->node_lock);
-  int father_cpu_num = p->cpu_num;
-  release(&p->node_lock);
+  //todo need to be 0?
+  int cpu_num;
+  #ifdef ON
+    cpu_num = get_min_cpu();
+  #else
+  {
+    acquire(&p->node_lock);
+    cpu_num = p->cpu_num;
+    release(&p->node_lock);
+  }
+  #endif
 
   // Allocate process.
   if((np = allocproc()) == 0){
@@ -399,13 +413,7 @@ fork(void)
 
   release(&np->lock);
   acquire(&np->node_lock);
-  //todo: check ese in ifdef
-  #ifdef ON
-    np->cpu_num = get_min_cpu();
-  #else
-    np->cpu_num = father_cpu_num;
-  #endif
-  int cpu_num = np->cpu_num;
+  np->cpu_num = cpu_num;  
   np->next_proc_index = -1;
   release(&np->node_lock);
 
@@ -542,6 +550,56 @@ wait(uint64 addr)
   }
 }
 
+struct proc*
+steal_proc(int new_cpu_num)
+{
+  struct proc* p = 0;
+  struct proc_list* ready_list;
+  for(ready_list = ready_lists; ready_list<&ready_lists[NCPU]; ready_list++)
+  {
+    p = remove_head(ready_list);
+    if(p)
+    {
+      //todo need change cpu num
+      //todo need to lock the regular lock?
+      acquire(&p->node_lock);
+      p->cpu_num = new_cpu_num;
+      release(&p->node_lock);
+      break;
+    }
+  }
+  return p;
+}
+
+void
+run_proc(struct proc *p, struct cpu *c)
+{
+  acquire(&p->lock);
+  if(p->state == RUNNABLE) {
+      // Switch to chosen process.  It is the process's job
+      // to release its lock and then reacquire it
+      // before jumping back to us.
+      p->state = RUNNING;
+      c->proc = p;
+      swtch(&c->context, &p->context);
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;       
+  }
+  release(&p->lock);
+}
+
+void
+cas_inc(int* num)
+{
+  int expected;
+  do
+  {
+    expected= *num;
+  } while (cas(num, expected, expected+1));
+}
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -553,13 +611,9 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
-                                                                printf("in scheduler func\n");
-
   struct proc *p;
   struct cpu *c = mycpu();
   struct proc_list* ready_list = get_ready_list(cpuid());
-
-
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
@@ -567,23 +621,21 @@ scheduler(void)
     acquire(&ready_list->lock);
     p = remove_head(ready_list);
     release(&ready_list->lock);
-    if(p != 0)
+    if(p == 0)
     {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-          // Switch to chosen process.  It is the process's job
-          // to release its lock and then reacquire it
-          // before jumping back to us.
-          p->state = RUNNING;
-          c->proc = p;
-          swtch(&c->context, &p->context);
-
-          // Process is done running for now.
-          // It should have changed its p->state before coming back.
-          c->proc = 0;       
+      #ifdef ON
+      {
+        p =  steal_proc(cpuid());
+        //todo its ok? the case p==0 continue
+        if(p==0)
+        {
+          continue;
+        }
+        cas_inc(&(ready_list->insertion_count));
       }
-      release(&p->lock);
+      #endif  
     }
+    run_proc(p,c);
   }
 }
 
@@ -711,7 +763,7 @@ sleep(void *chan, struct spinlock *lk)
   release(&p->lock);
   acquire(lk);
 }
-
+//todo check if te nsertion cuint and the return value of cas is int
 // Wake up all processes sleeping on chan.
 // Must be called without any p->lock.
 //todo:  imp -> git
@@ -736,19 +788,20 @@ wakeup(void *chan)
       release(&sleeping_list->lock);
       return;
     }
-
+    acquire(&pred->lock);
     acquire(&pred->node_lock);
     release(&sleeping_list->lock);
-    acquire(&pred->lock);
-  
+    //todo check all lock in the order lock, node_lock -> lists->lock
     if(pred->chan == chan)
     {
       pred->state = RUNNABLE;
       //todo: check if we need two locks for one proc?
       int cpu_num;
       #ifdef ON
+      {
         cpu_num = get_min_cpu();
         pred->cpu_num = cpu_num;
+      }
       #else
         cpu_num = pred->cpu_num;
       #endif
@@ -769,10 +822,13 @@ wakeup(void *chan)
         release(&pred->lock);
         return;
       }
+      //todo change order?
+      acquire(&curr->lock);
       acquire(&curr->node_lock);
       release(&pred->node_lock);
       pred = curr;
-      acquire(&pred->lock);
+      //todo chang order?
+      //acquire(&pred->lock);
 
       if(pred->chan == chan) {
         pred->state = RUNNABLE;
@@ -968,6 +1024,17 @@ get_cpu(void)
   int curr_cpu_num = p->cpu_num;
   release(&p->node_lock);
   return curr_cpu_num;
+}
+
+int
+cpu_process_count(int cpu_num)
+{
+  struct proc_list* ready_list = get_ready_list(cpu_num);
+  if(ready_list)
+  {
+    return ready_list->insertion_count;
+  }
+  return -1;
 }
 
 
