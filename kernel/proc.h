@@ -25,7 +25,7 @@ struct cpu {
   int noff;                   // Depth of push_off() nesting.
   int intena;                 // Were interrupts enabled before push_off()?
   uint64 proc_count;
-  struct proc_list* ready_list;
+  struct proc_list* ready_list; //todo check if need
 
 };
 
