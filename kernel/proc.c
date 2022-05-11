@@ -330,13 +330,30 @@ growproc(int n)
   return 0;
 }
 
+int
+get_min_cpu(void)
+{
+  struct cpu* c;
+  int min_proc_count;
+  int min_cpu_num;
+  int cpu_num = 0;
+  for(c = cpus; c<&cpus[NCPU]; cpu_num++, c++)
+  {
+    if(c->proc_count<min_proc_count)
+    {
+      min_proc_count = c->proc_count;
+      min_cpu_num = cpu_num;
+    }
+  }
+  return min_cpu_num;
+}
+
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
 //todo imp -> git
 int
 fork(void)
 {
-  
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
@@ -371,7 +388,6 @@ fork(void)
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
-
   release(&np->lock);
 
   acquire(&wait_lock);
@@ -383,11 +399,18 @@ fork(void)
 
   release(&np->lock);
   acquire(&np->node_lock);
-  np->cpu_num = father_cpu_num;
+  //todo: check ese in ifdef
+  #ifdef ON
+    np->cpu_num = get_min_cpu();
+  #else
+    np->cpu_num = father_cpu_num;
+  #endif
+  int cpu_num = np->cpu_num;
   np->next_proc_index = -1;
   release(&np->node_lock);
 
-  struct proc_list* ready_list = get_ready_list(father_cpu_num);
+  struct proc_list* ready_list = get_ready_list(cpu_num);
+  
   if(ready_list)
   {
     add_proc_to_tail(np->index,ready_list);
@@ -574,7 +597,6 @@ scheduler(void)
 void
 sched(void)
 {
-                                                                  printf("in sched func\n");
 
   int intena;
   struct proc *p = myproc();
@@ -616,7 +638,6 @@ sched(void)
 void
 yield(void)
 {
-                                                                    printf("in yield func\n");
 
   struct proc *p = myproc();
   acquire(&p->lock);  
@@ -640,7 +661,6 @@ yield(void)
 void
 forkret(void)
 {
-                                                                      printf("in forkret func\n");
 
   static int first = 1;
 
@@ -664,7 +684,6 @@ forkret(void)
 void
 sleep(void *chan, struct spinlock *lk)
 {
-                                                                        printf("in sleep func\n");
 
   struct proc *p = myproc();
   
@@ -676,12 +695,12 @@ sleep(void *chan, struct spinlock *lk)
   // so it's okay to release lk.
 
   acquire(&p->lock);  //DOC: sleeplock1
+  add_proc_to_tail(p->index,sleeping_list);
   release(lk);
 
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
-  add_proc_to_tail(p->index,sleeping_list);
 
   sched();
 
@@ -701,7 +720,6 @@ sleep(void *chan, struct spinlock *lk)
 void
 wakeup(void *chan)
 {
-  printf("in wakeup func\n");
   struct proc *pred, *curr;
   int found_proc_to_wakeup = FALSE;
   while(TRUE)
@@ -727,7 +745,13 @@ wakeup(void *chan)
     {
       pred->state = RUNNABLE;
       //todo: check if we need two locks for one proc?
-      int cpu_num = pred->cpu_num;
+      int cpu_num;
+      #ifdef ON
+        cpu_num = get_min_cpu();
+        pred->cpu_num = cpu_num;
+      #else
+        cpu_num = pred->cpu_num;
+      #endif
       release(&pred->node_lock);
       remove_proc(pred->index,sleeping_list);
       add_proc_to_tail(pred->index, get_ready_list(cpu_num));
@@ -752,7 +776,12 @@ wakeup(void *chan)
 
       if(pred->chan == chan) {
         pred->state = RUNNABLE;
-        int cpu_num = pred->cpu_num;
+        int cpu_num;
+        #ifdef ON
+          cpu_num = get_min_cpu();
+        #else
+          cpu_num = pred->cpu_num;
+        #endif
         release(&pred->node_lock);
         remove_proc(pred->index,sleeping_list);
         add_proc_to_tail(pred->index, get_ready_list(cpu_num));
@@ -800,7 +829,6 @@ wakeup(void *chan)
 int
 kill(int pid)
 {
-                                                                          printf("in kill func\n");
 
   struct proc *p;
 
@@ -826,7 +854,6 @@ kill(int pid)
 int
 either_copyout(int user_dst, uint64 dst, void *src, uint64 len)
 {
-                                                                            printf("in either_copyout func\n");
 
   struct proc *p = myproc();
   if(user_dst){
@@ -843,7 +870,6 @@ either_copyout(int user_dst, uint64 dst, void *src, uint64 len)
 int
 either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 {
-                                                                              printf("in either_copyin func\n");
 
   struct proc *p = myproc();
   if(user_src){
@@ -860,7 +886,6 @@ either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 void
 procdump(void)
 {
-                                                                                printf("in procdump func\n");
 
   static char *states[] = {
   [UNUSED]    "unused",
@@ -893,7 +918,6 @@ procdump(void)
 int
 is_valid_cpu(int cpu_num)
 {
-  printf("in is_valid_cpu func\n");
   return cpu_num>=0 && cpu_num<NCPU;
 }
 
@@ -902,7 +926,6 @@ is_valid_cpu(int cpu_num)
 int
 set_cpu(int cpu_num)
 {
-    printf("in set_cpu func\n");
 
   if(!is_valid_cpu(cpu_num))
   {
@@ -929,7 +952,6 @@ get_ready_list(int cpu_num)
 struct cpu*
 get_cpu_by_cpu_num(int cpu_num)
 {
-  printf("in get_cpu_by_cpu_num func\n");
   if(!is_valid_cpu(cpu_num))
   {
       return FAIL;
@@ -940,7 +962,6 @@ get_cpu_by_cpu_num(int cpu_num)
 int
 get_cpu(void)
 {
-          printf("in get_cpu func\n");
 
   struct proc* p = myproc();
   acquire(&p->node_lock); 
@@ -958,7 +979,6 @@ get_cpu(void)
 int
 is_valid_proc_index(int index)
 {
-  printf("in is_valid_proc_index func\n");
   return (index >= 0 && index <NPROC);
 }
 
@@ -967,14 +987,12 @@ is_valid_proc_index(int index)
 int
 is_empty(struct proc_list* proc_list)
 {
-  printf("in is_empty func\n");
   return proc_list->head==-1 || (!is_valid_proc_index(proc_list->head));
 }
 //todo: what id the proc is unused?
 struct proc* 
 get_proc_by_index(int index)
 {
-  printf("in get_proc_by_index func\n");
 
   if(is_valid_proc_index(index))
   {
@@ -988,7 +1006,6 @@ get_proc_by_index(int index)
 int
 add_proc_to_tail(int p_index, struct proc_list* proc_list)
 {
-  printf("in add_proc_to_tail func\n");
 
   if(!is_valid_proc_index(p_index))
   {
@@ -1021,7 +1038,6 @@ add_proc_to_tail(int p_index, struct proc_list* proc_list)
 struct proc*
 get_head(struct proc_list* proc_list)
 {
-  printf("in get_head func\n");
   return get_proc_by_index(proc_list->head);
 }
 
@@ -1039,7 +1055,6 @@ is_tail(struct proc* p, struct proc_list* proc_list)
 int
 is_remove_head(int p_index, struct proc_list* proc_list)
 {
-  printf("in is_remove_head func\n");
 
   return (p_index==proc_list->head) && (p_index!=-1);
 }
@@ -1060,7 +1075,6 @@ has_next(struct proc *p)
 struct proc*
 remove_head(struct proc_list* proc_list)
 {
-  printf("in remove_head func\n");
 
   struct proc *p = get_head(proc_list);
   if(p != 0)
@@ -1082,7 +1096,6 @@ remove_head(struct proc_list* proc_list)
 int
 remove_proc(int p_index, struct proc_list* proc_list)
 {
-                            printf("in remove_proc func\n");
 
   struct proc *pred, *curr;
   acquire(&proc_list->lock);
