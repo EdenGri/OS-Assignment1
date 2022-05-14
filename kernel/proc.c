@@ -151,11 +151,11 @@ allocpid() {
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
-
+//---------------------------------------------------------------------------------------------------------------
 static struct proc*
 allocproc(void)
 {
-   acquire(&unused_list->lock);
+  acquire(&unused_list->lock);
   struct proc *p = remove_head(unused_list);
   release(&unused_list->lock);
   if(p == 0)
@@ -341,7 +341,7 @@ get_min_cpu(void)
   struct proc_list* ready_list_to_update;
   do
   {
-    for(ready_list = ready_lists; ready_list<&ready_lists[NCPU]; ready_list++, cpu_num++)
+    for(ready_list = ready_lists; ready_list<&ready_lists[cpu_count]; ready_list++, cpu_num++)
     {
       if(ready_list->insertion_count<min_insertion_count || min_insertion_count ==-1)
       {
@@ -555,7 +555,7 @@ steal_proc(int new_cpu_num)
 {
   struct proc* p = 0;
   struct proc_list* ready_list;
-  for(ready_list = ready_lists; ready_list<&ready_lists[NCPU]; ready_list++)
+  for(ready_list = ready_lists; ready_list<&ready_lists[cpu_count]; ready_list++)
   {
     p = remove_head(ready_list);
     if(p)
@@ -631,9 +631,15 @@ scheduler(void)
         {
           continue;
         }
-        cas_inc(&(ready_list->insertion_count));
+        //cas_inc(&(ready_list->insertion_count));
+        int expected; 
+        do
+        {
+          expected=ready_list->insertion_count;
+        } while (cas(&(ready_list->insertion_count), expected, expected+1));
+
       }
-      #endif  
+      #endif 
     }
     run_proc(p,c);
   }
@@ -806,8 +812,10 @@ wakeup(void *chan)
         cpu_num = pred->cpu_num;
       #endif
       release(&pred->node_lock);
-      remove_proc(pred->index,sleeping_list);
-      add_proc_to_tail(pred->index, get_ready_list(cpu_num));
+      if(remove_proc(pred->index,sleeping_list))
+      {
+        add_proc_to_tail(pred->index, get_ready_list(cpu_num));
+      }    
       release(&pred->lock);
       continue;
     }
@@ -839,8 +847,10 @@ wakeup(void *chan)
           cpu_num = pred->cpu_num;
         #endif
         release(&pred->node_lock);
-        remove_proc(pred->index,sleeping_list);
-        add_proc_to_tail(pred->index, get_ready_list(cpu_num));
+        if(remove_proc(pred->index,sleeping_list))
+        {
+          add_proc_to_tail(pred->index, get_ready_list(cpu_num));
+        }       
         release(&pred->lock);
         found_proc_to_wakeup = TRUE;
         break;
@@ -1063,8 +1073,7 @@ get_proc_by_index(int index)
 
   if(is_valid_proc_index(index))
   {
-    struct proc* p  = &proc[index];
-    return p;
+    return &proc[index];
   }
   return FAIL;
 }
