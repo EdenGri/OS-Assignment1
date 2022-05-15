@@ -8,6 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct proc_list;
 
 // bio.c
 void            binit(void);
@@ -86,7 +87,10 @@ int                 cpuid(void);
 void                exit(int);
 int                 fork(void);
 int                 growproc(int);
+int                 get_min_cpu(void);
 void                proc_mapstacks(pagetable_t);
+void                init_list(struct proc_list*, char*);
+void                init_process_lists(void);
 pagetable_t         proc_pagetable(struct proc *);
 void                proc_freepagetable(pagetable_t, uint64);
 int                 kill(int);
@@ -94,6 +98,9 @@ struct cpu*         mycpu(void);
 struct cpu*         getmycpu(void);
 struct proc*        myproc();
 void                procinit(void);
+struct proc*        steal_proc(int new_cpu_num);
+void                run_proc(struct proc *p, struct cpu *c);
+void                cas_inc(int* num);//todo
 void                scheduler(void) __attribute__((noreturn));
 void                sched(void);
 void                sleep(void*, struct spinlock*);

@@ -330,13 +330,16 @@ growproc(int n)
   p->sz = sz;
   return 0;
 }
-
+//todo: change!
 int
 get_min_cpu(void)
 {
-  uint64 min_insertion_count = -1;
-  int min_cpu_num;
-  int cpu_num = 0;
+  uint64 min_insertion_count = -1;//minvalue
+  int min_cpu_num = 0;//min_index
+  //int cpu_num = 0;i
+  uint64 *currMinPointer=&((&ready_lists[0])->insertion_count);
+
+  /*
   struct proc_list* ready_list;
   struct proc_list* ready_list_to_update;
   do
@@ -351,6 +354,20 @@ get_min_cpu(void)
       }
     }
   } while (cas(&(ready_list_to_update->insertion_count), min_insertion_count, (min_insertion_count+1)));
+  */
+
+  do { 
+    for(int i=0; i<cpu_count; i++)
+    {
+      if (min_insertion_count>(&ready_lists[i])->insertion_count)
+      {
+        min_cpu_num=i;
+        min_insertion_count=(&ready_lists[i])->insertion_count;
+        currMinPointer=&((&ready_lists[i])->insertion_count);
+      }
+    }
+  }
+  while(cas(currMinPointer, min_insertion_count, min_insertion_count+1));
   return min_cpu_num;
 }
 
@@ -549,15 +566,20 @@ wait(uint64 addr)
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
 }
-
+//todo:change!
 struct proc*
 steal_proc(int new_cpu_num)
 {
   struct proc* p = 0;
+  
   struct proc_list* ready_list;
+  /*
   for(ready_list = ready_lists; ready_list<&ready_lists[cpu_count]; ready_list++)
   {
+    acquire(&ready_list->lock);
     p = remove_head(ready_list);
+    release(&ready_list->lock);
+
     if(p)
     {
       //todo need change cpu num
@@ -568,6 +590,18 @@ steal_proc(int new_cpu_num)
       break;
     }
   }
+  */
+   for(int i=0; i<cpu_count; i++)
+   {
+    ready_list = get_ready_list(i);
+    acquire(&ready_list->lock);
+    p = remove_head(ready_list);
+    release(&ready_list->lock);
+    if(p!=0)
+    {
+      return p;
+    }
+   }
   return p;
 }
 
