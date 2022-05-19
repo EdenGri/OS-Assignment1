@@ -65,7 +65,6 @@ init_list(struct proc_list* list, char* name)
   initlock(&list->lock, name);
   list->head = -1;
   list->tail = -1;
-  list->insertion_count = 0;
 }
 
 void
@@ -566,6 +565,7 @@ wait(uint64 addr)
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
 }
+/*
 //todo:change!
 struct proc*
 steal_proc(int new_cpu_num)
@@ -573,7 +573,7 @@ steal_proc(int new_cpu_num)
   struct proc* p = 0;
   
   struct proc_list* ready_list;
-  /*
+  
   for(ready_list = ready_lists; ready_list<&ready_lists[cpu_count]; ready_list++)
   {
     acquire(&ready_list->lock);
@@ -590,7 +590,7 @@ steal_proc(int new_cpu_num)
       break;
     }
   }
-  */
+  
    for(int i=0; i<cpu_count; i++)
    {
     ready_list = get_ready_list(i);
@@ -603,8 +603,8 @@ steal_proc(int new_cpu_num)
     }
    }
   return p;
-}
-
+}*/
+//todooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
 void
 run_proc(struct proc *p, struct cpu *c)
 {
@@ -623,7 +623,7 @@ run_proc(struct proc *p, struct cpu *c)
   }
   release(&p->lock);
 }
-
+/*
 void
 cas_inc(int* num)
 {
@@ -632,7 +632,7 @@ cas_inc(int* num)
   {
     expected= *num;
   } while (cas(num, expected, expected+1));
-}
+}*/
 
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -657,6 +657,8 @@ scheduler(void)
     release(&ready_list->lock);
     if(p == 0)
     {
+      continue;
+      /*
       #ifdef ON
       {
         p =  steal_proc(cpuid());
@@ -673,7 +675,7 @@ scheduler(void)
         } while (cas(&(ready_list->insertion_count), expected, expected+1));
 
       }
-      #endif 
+      #endif */
     }
     run_proc(p,c);
   }
