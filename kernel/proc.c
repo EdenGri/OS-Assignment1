@@ -333,6 +333,7 @@ growproc(int n)
 int
 get_min_cpu(void)
 {
+  return 2;
   uint64 min_insertion_count = -1;
   int min_cpu_num = 0;
   int cpu_num = 0;
@@ -360,14 +361,17 @@ get_min_cpu(void)
 int
 fork(void)
 {
+  printf("----------------------------  fork\n");
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
   //todo need to be 0?
-  int cpu_num;
+  int cpu_num=0;
+  
   #ifdef ON
     cpu_num = get_min_cpu();
-  #else
+  #endif
+  #ifdef OFF
   {
     acquire(&p->node_lock);
     cpu_num = p->cpu_num;
@@ -421,6 +425,7 @@ fork(void)
   
   if(ready_list)
   {
+    printf("****** Add process to CPU the list\n");
     add_proc_to_tail(np->index,ready_list);
   }
 
@@ -555,17 +560,17 @@ struct proc*
 steal_proc(int new_cpu_num)
 {
 
-  
   struct proc* p = 0;
   
   struct proc_list* ready_list;
-  
-  for(ready_list = ready_lists; ready_list<&ready_lists[cpu_count]; ready_list++)
+  int counter = 1;
+  for(ready_list = ready_lists; ready_list<&(ready_lists[cpu_count]); ready_list++)
   {
+    //printf("Checking list %d / %d\n",counter, cpu_count);
     acquire(&ready_list->lock);
     p = remove_head(ready_list);
     release(&ready_list->lock);
-
+    counter++;
     if(p)
     {
       //todo need change cpu num
@@ -575,6 +580,7 @@ steal_proc(int new_cpu_num)
       release(&p->node_lock);
       break;
     }
+    //printf("List was empty, steal nothing from that list\n");
   }
   return p;
 }
@@ -589,8 +595,9 @@ run_proc(struct proc *p, struct cpu *c)
       // before jumping back to us.
       p->state = RUNNING;
       c->proc = p;
+      
       swtch(&c->context, &p->context);
-
+      
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       c->proc = 0;       
@@ -635,19 +642,25 @@ scheduler(void)
     }else{
       #ifdef ON
       {
+        //printf("start steal\n");
         p =  steal_proc(cpuid());
+        //printf("end steal\n");
         //todo its ok? the case p==0 continue
         if(p==0)
         {
+          //printf("the steal return 0\n");
           continue;
         }
 
         //cas_inc(&(ready_list->insertion_count));
         int expected; 
+        //printf("starting loop to update the insertion count\n");
         do
         {
           expected=ready_list->insertion_count;
         } while (cas(&(ready_list->insertion_count), expected, expected+1));
+
+        printf("****************************** running stolen proc\n");
         run_proc(p,c);
 
 
@@ -822,7 +835,8 @@ wakeup(void *chan)
         cpu_num = get_min_cpu();
         pred->cpu_num = cpu_num;
       }
-      #else
+      #endif
+      #ifdef OFF
         cpu_num = pred->cpu_num;
       #endif
       release(&pred->node_lock);
@@ -857,7 +871,8 @@ wakeup(void *chan)
         int cpu_num;
         #ifdef ON
           cpu_num = get_min_cpu();
-        #else
+        #endif
+        #ifdef OFF
           cpu_num = pred->cpu_num;
         #endif
         release(&pred->node_lock);
