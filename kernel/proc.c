@@ -333,25 +333,28 @@ growproc(int n)
 int
 get_min_cpu(void)
 {
-  return 2;
-  uint64 min_insertion_count = -1;
+  //return 0;
+  uint64 min_insertion_count =-1;
   int min_cpu_num = 0;
   int cpu_num = 0;
   
   struct proc_list* ready_list;
   struct proc_list* ready_list_to_update;
-  do
+  
+  for(ready_list = ready_lists; ready_list<&ready_lists[cpu_count]; ready_list++, cpu_num++)
   {
-    for(ready_list = ready_lists; ready_list<&ready_lists[cpu_count]; ready_list++, cpu_num++)
+    if(ready_list->insertion_count<min_insertion_count || min_insertion_count ==-1)
     {
-      if(ready_list->insertion_count<min_insertion_count || min_insertion_count ==-1)
-      {
-        min_insertion_count = ready_list->insertion_count;
-        min_cpu_num = cpu_num;
-        ready_list_to_update = ready_list;
-      }
+      min_insertion_count = ready_list->insertion_count;
+      min_cpu_num = cpu_num;
+      ready_list_to_update = ready_list;
     }
+  }
+
+  do{
+    min_insertion_count = ready_list_to_update->insertion_count;
   } while (cas(&(ready_list_to_update->insertion_count), min_insertion_count, (min_insertion_count+1)));
+  
   return min_cpu_num;
 }
 
@@ -361,7 +364,7 @@ get_min_cpu(void)
 int
 fork(void)
 {
-  printf("----------------------------  fork\n");
+  //printf("----------------------------  fork\n");
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
@@ -425,10 +428,11 @@ fork(void)
   
   if(ready_list)
   {
-    printf("****** Add process to CPU the list\n");
+    //printf("****** Add process to CPU the list\n");
     add_proc_to_tail(np->index,ready_list);
   }
 
+  printf("Forked pid: %d\n",pid);
   return pid;
 }
 
@@ -580,7 +584,6 @@ steal_proc(int new_cpu_num)
       release(&p->node_lock);
       break;
     }
-    //printf("List was empty, steal nothing from that list\n");
   }
   return p;
 }
@@ -639,7 +642,8 @@ scheduler(void)
     if(p!=0)
     {
       run_proc(p,c);
-    }else{
+    }
+    else{
       #ifdef ON
       {
         //printf("start steal\n");
@@ -655,17 +659,17 @@ scheduler(void)
         //cas_inc(&(ready_list->insertion_count));
         int expected; 
         //printf("starting loop to update the insertion count\n");
+        
         do
         {
           expected=ready_list->insertion_count;
         } while (cas(&(ready_list->insertion_count), expected, expected+1));
-
-        printf("****************************** running stolen proc\n");
+        printf("run stolen %d\n", p->pid);
         run_proc(p,c);
 
 
       }
-      #endif 
+      #endif
     }
 
     
@@ -786,7 +790,7 @@ sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
-
+  printf("Sleep pid: %d\n",p->pid);
   sched();
 
   // Tidy up.
@@ -828,6 +832,7 @@ wakeup(void *chan)
     if(pred->chan == chan)
     {
       pred->state = RUNNABLE;
+      printf("wakeup pid: %d\n",pred->pid);
       //todo: check if we need two locks for one proc?
       int cpu_num;
       #ifdef ON
@@ -868,6 +873,8 @@ wakeup(void *chan)
 
       if(pred->chan == chan) {
         pred->state = RUNNABLE;
+       printf("wakeup pid: %d\n",pred->pid);
+
         int cpu_num;
         #ifdef ON
           cpu_num = get_min_cpu();
@@ -1269,7 +1276,6 @@ remove_proc(int p_index, struct proc_list* proc_list)
 } 
 
 //-------------------------------------------------------proc_list------------------------------------------------------------
-
 
 
 
