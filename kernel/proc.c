@@ -633,7 +633,7 @@ scheduler(void)
     {
       run_proc(p,c);
     }
-    /*else{
+    else{
       #ifdef ON
       {
         //printf("start steal\n");
@@ -660,7 +660,7 @@ scheduler(void)
 
       }
       #endif
-    }*/
+    }
 
     
   }
