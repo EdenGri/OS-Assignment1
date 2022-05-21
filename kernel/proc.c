@@ -19,13 +19,11 @@ struct proc proc[NPROC];
 
 struct proc *initproc;
 
-//todo:
 struct proc_list procs_lists[3]; 
 struct proc_list ready_lists[NCPU];
 
 int nextpid = 1;
 
-//todo : pointer for the lists?
 struct proc_list* unused_list;
 struct proc_list* sleeping_list;
 struct proc_list* zombie_list;
@@ -63,8 +61,10 @@ void
 init_list(struct proc_list* list, char* name)
 {
   initlock(&list->lock, name);
+  list->insertion_count = 0;
   list->head = -1;
   list->tail = -1;
+
 }
 
 void
@@ -197,7 +197,6 @@ found:
 // including user pages.
 // p->lock must be held.
 
-//todo: imp -> git
 static void
 freeproc(struct proc *p)
 {
@@ -276,7 +275,6 @@ uchar initcode[] = {
 };
 
 // Set up first user process.
-//todo imp -> git
 void
 userinit(void)
 {
@@ -301,7 +299,6 @@ userinit(void)
 
   release(&p->lock);
   int first_cpu_num = 0;
-  //todo
   struct proc_list* ready_list =  get_ready_list(first_cpu_num);
   if(ready_list)
   {
@@ -328,7 +325,7 @@ growproc(int n)
   p->sz = sz;
   return 0;
 }
-//todo: change!
+
 int
 get_min_cpu(void)
 {
@@ -359,15 +356,12 @@ get_min_cpu(void)
 
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
-//todo imp -> git
 int
 fork(void)
 {
-  //printf("----------------------------  fork\n");
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
-  //todo need to be 0?
   int cpu_num=0;
   
   #ifdef ON
@@ -427,11 +421,9 @@ fork(void)
   
   if(ready_list)
   {
-    //printf("****** Add process to CPU the list\n");
     add_proc_to_tail(np->index,ready_list);
   }
 
-  //printf("Forked pid: %d\n",pid);
   return pid;
 }
 
@@ -453,7 +445,6 @@ reparent(struct proc *p)
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
 // until its parent calls wait().
-//todo imp -> git
 void
 exit(int status)
 {
@@ -552,7 +543,6 @@ wait(uint64 addr)
   }
 }
 
-//todo:change!
 struct proc*
 steal_proc(int new_cpu_num)
 {
@@ -567,8 +557,6 @@ steal_proc(int new_cpu_num)
     release(&ready_list->lock);
     if(p)
     {
-      //todo need change cpu num
-      //todo need to lock the regular lock?
       acquire(&p->node_lock);
       p->cpu_num = new_cpu_num;
       release(&p->node_lock);
@@ -615,7 +603,6 @@ cas_inc(int* num)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
-//todo imp -> git
 void
 scheduler(void)
 {
@@ -636,33 +623,19 @@ scheduler(void)
     else{
       #ifdef ON
       {
-        //printf("start steal\n");
         p =  steal_proc(cpuid());
-        //printf("end steal\n");
-        //todo its ok? the case p==0 continue
-        if(p==0)
+        if(p!=0)
         {
-          //printf("the steal return 0\n");
-          continue;
+          int expected; 
+          do
+          {
+            expected=ready_list->insertion_count;
+          } while (cas(&(ready_list->insertion_count), expected, expected+1)); 
+          run_proc(p,c);
         }
-
-        //cas_inc(&(ready_list->insertion_count));
-        int expected; 
-        //printf("starting loop to update the insertion count\n");
-        
-        do
-        {
-          expected=ready_list->insertion_count;
-        } while (cas(&(ready_list->insertion_count), expected, expected+1));
-        
-        run_proc(p,c);
-
-
       }
       #endif
-    }
-
-    
+    }    
   }
 }
 
@@ -713,7 +686,6 @@ sched(void)
 }
 
 // Give up the CPU for one scheduling round.
-//todo inp -> git
 void
 yield(void)
 {
@@ -760,7 +732,6 @@ forkret(void)
 
 // Atomically release lock and sleep on chan.
 // Reacquires lock when awakened.
-//todo: imp-> git
 void
 sleep(void *chan, struct spinlock *lk)
 {
@@ -781,7 +752,6 @@ sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
-  //printf("Sleep pid: %d\n",p->pid);
   sched();
 
   // Tidy up.
@@ -791,12 +761,8 @@ sleep(void *chan, struct spinlock *lk)
   release(&p->lock);
   acquire(lk);
 }
-//todo check if te nsertion cuint and the return value of cas is int
 // Wake up all processes sleeping on chan.
 // Must be called without any p->lock.
-//todo:  imp -> git
-//todo locks
-//todo delete all printf
 void
 wakeup(void *chan)
 {
@@ -819,12 +785,9 @@ wakeup(void *chan)
     acquire(&pred->lock);
     acquire(&pred->node_lock);
     release(&sleeping_list->lock);
-    //todo check all lock in the order lock, node_lock -> lists->lock
     if(pred->chan == chan)
     {
       pred->state = RUNNABLE;
-      //printf("wakeup pid: %d\n",pred->pid);
-      //todo: check if we need two locks for one proc?
       int cpu_num;
       #ifdef ON
       {
@@ -855,17 +818,13 @@ wakeup(void *chan)
         release(&pred->lock);
         return;
       }
-      //todo change order?
       acquire(&curr->lock);
       acquire(&curr->node_lock);
       release(&pred->node_lock);
       pred = curr;
-      //todo chang order?
-      //acquire(&pred->lock);
 
       if(pred->chan == chan) {
         pred->state = RUNNABLE;
-       //printf("wakeup pid: %d\n",pred->pid);
 
         int cpu_num;
         #ifdef ON
@@ -896,33 +855,9 @@ wakeup(void *chan)
   }
 }
 
-
-
-//todo delete
-/*
-void
-wakeup(void *chan)
-{
-  struct proc *p;
-
-  for(p = proc; p < &proc[NPROC]; p++) {
-    if(p != myproc()){
-      acquire(&p->lock);
-      if(p->state == SLEEPING && p->chan == chan) {
-        p->state = RUNNABLE;
-        remove_proc(p->index,sleeping_list);
-        add_proc_to_tail(p->index, get_ready_list(p->cpu_num));
-      }
-      release(&p->lock);
-    }
-  }
-}
-*/
-
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).
-//todo: imp -> git
 int
 kill(int pid)
 {
@@ -1016,15 +951,12 @@ procdump(void)
 
 
 //-------------------------------------------------------proc_list-------------------------------------------------------------
-//todo: check when the set_cpu failed
 int
 is_valid_cpu(int cpu_num)
 {
   return cpu_num>=0 && cpu_num<NCPU;
 }
 
-//todo need cas for get and set?
-//todo need to return -1?
 int
 set_cpu(int cpu_num)
 {
@@ -1060,7 +992,7 @@ get_cpu_by_cpu_num(int cpu_num)
   }
   return &cpus[cpu_num];
 }
-//todo check set/get cpu 3.1.5
+
 int
 get_cpu(void)
 {
@@ -1083,12 +1015,6 @@ cpu_process_count(int cpu_num)
   return -1;
 }
 
-
-//todo check the changes in the assinment in part 1
-//todo cas we need to change 0 to 1?
-
-//todo need lock on list? the lock in the function or before and after functions?
-//todo imp is_valid_proc_index
 int
 is_valid_proc_index(int index)
 {
@@ -1102,7 +1028,7 @@ is_empty(struct proc_list* proc_list)
 {
   return proc_list->head==-1 || (!is_valid_proc_index(proc_list->head));
 }
-//todo: what id the proc is unused?
+
 struct proc* 
 get_proc_by_index(int index)
 {
@@ -1228,7 +1154,6 @@ remove_proc(int p_index, struct proc_list* proc_list)
     return result;
   }
 
-  //todo imp
   pred = get_proc_by_index(proc_list->head);
   if(pred == 0)
   {
@@ -1244,7 +1169,6 @@ remove_proc(int p_index, struct proc_list* proc_list)
     release(&pred->node_lock);
     return FAIL;
   }
-  //todo change to function
   while (has_next(pred)) 
   {
     curr = get_proc_by_index(pred->next_proc_index);
