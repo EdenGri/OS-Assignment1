@@ -167,7 +167,6 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -432,7 +431,7 @@ fork(void)
     add_proc_to_tail(np->index,ready_list);
   }
 
-  printf("Forked pid: %d\n",pid);
+  //printf("Forked pid: %d\n",pid);
   return pid;
 }
 
@@ -490,13 +489,7 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
-  printf("%d\n", p->pid);
-  //todo need?
-  /*
-  acquire(&p->lock);
-  p->cpu_num=0;
-  release(&p->lock);
-  */
+  
   acquire(&p->node_lock);
   p->cpu_num = 0;
   release(&p->node_lock);
@@ -567,14 +560,11 @@ steal_proc(int new_cpu_num)
   struct proc* p = 0;
   
   struct proc_list* ready_list;
-  int counter = 1;
   for(ready_list = ready_lists; ready_list<&(ready_lists[cpu_count]); ready_list++)
   {
-    //printf("Checking list %d / %d\n",counter, cpu_count);
     acquire(&ready_list->lock);
     p = remove_head(ready_list);
     release(&ready_list->lock);
-    counter++;
     if(p)
     {
       //todo need change cpu num
@@ -643,7 +633,7 @@ scheduler(void)
     {
       run_proc(p,c);
     }
-    else{
+    /*else{
       #ifdef ON
       {
         //printf("start steal\n");
@@ -664,13 +654,13 @@ scheduler(void)
         {
           expected=ready_list->insertion_count;
         } while (cas(&(ready_list->insertion_count), expected, expected+1));
-        printf("run stolen %d\n", p->pid);
+        
         run_proc(p,c);
 
 
       }
       #endif
-    }
+    }*/
 
     
   }
@@ -733,9 +723,10 @@ yield(void)
   p->state = RUNNABLE;
   acquire(&p->node_lock);
   int cpu_num = p->cpu_num;
+  struct proc_list* ready_list = get_ready_list(cpu_num);
   release(&p->node_lock);
 
-  struct proc_list* ready_list = get_ready_list(cpu_num);
+  
   if(ready_list)
   {
     add_proc_to_tail(p->index,ready_list);
@@ -790,7 +781,7 @@ sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
-  printf("Sleep pid: %d\n",p->pid);
+  //printf("Sleep pid: %d\n",p->pid);
   sched();
 
   // Tidy up.
@@ -832,7 +823,7 @@ wakeup(void *chan)
     if(pred->chan == chan)
     {
       pred->state = RUNNABLE;
-      printf("wakeup pid: %d\n",pred->pid);
+      //printf("wakeup pid: %d\n",pred->pid);
       //todo: check if we need two locks for one proc?
       int cpu_num;
       #ifdef ON
@@ -844,10 +835,11 @@ wakeup(void *chan)
       #ifdef OFF
         cpu_num = pred->cpu_num;
       #endif
+      struct proc_list* ready_list = get_ready_list(cpu_num);
       release(&pred->node_lock);
       if(remove_proc(pred->index,sleeping_list))
       {
-        add_proc_to_tail(pred->index, get_ready_list(cpu_num));
+        add_proc_to_tail(pred->index, ready_list);
       }    
       release(&pred->lock);
       continue;
@@ -873,7 +865,7 @@ wakeup(void *chan)
 
       if(pred->chan == chan) {
         pred->state = RUNNABLE;
-       printf("wakeup pid: %d\n",pred->pid);
+       //printf("wakeup pid: %d\n",pred->pid);
 
         int cpu_num;
         #ifdef ON
@@ -882,10 +874,12 @@ wakeup(void *chan)
         #ifdef OFF
           cpu_num = pred->cpu_num;
         #endif
+        
+        struct proc_list* ready_list = get_ready_list(cpu_num);
         release(&pred->node_lock);
         if(remove_proc(pred->index,sleeping_list))
         {
-          add_proc_to_tail(pred->index, get_ready_list(cpu_num));
+          add_proc_to_tail(pred->index, ready_list);
         }       
         release(&pred->lock);
         found_proc_to_wakeup = TRUE;
@@ -896,6 +890,7 @@ wakeup(void *chan)
     if(!found_proc_to_wakeup)
     {
       release(&pred->node_lock);
+
       return;
     }
   }
@@ -941,6 +936,11 @@ kill(int pid)
       if(p->state == SLEEPING){
         // Wake process from sleep().
         p->state = RUNNABLE;
+        acquire(&p->node_lock);
+        struct proc_list* ready_list = get_ready_list(p->cpu_num);
+        release(&p->node_lock);
+        remove_proc(p->index, sleeping_list);
+        add_proc_to_tail(p->index,ready_list);
       }
       release(&p->lock);
       return 0;
