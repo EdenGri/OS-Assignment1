@@ -81,12 +81,14 @@ kalloc(void)//todo need to change?
   acquire(&kmem.lock);
   r = kmem.freelist;
   if(r)
+  {
+    add_ref((uint64)r);
     kmem.freelist = r->next;
+  }
   release(&kmem.lock);
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
-
   return (void*)r;
 }
 
@@ -97,7 +99,7 @@ add_ref(uint64 pa)
   do{
     ref = refs[PA2IDX(pa)];
   }while(cas(&(refs[PA2IDX(pa)]),ref, (ref +1)));
-  return ref;
+  return (ref+1);
 }
 
 int
@@ -107,5 +109,5 @@ remove_ref(uint64 pa)
   do{
     ref = refs[PA2IDX(pa)];
   }while(cas(&(refs[PA2IDX(pa)]),ref, (ref -1)));
-  return ref;
+  return (ref-1);
 }
