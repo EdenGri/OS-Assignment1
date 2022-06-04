@@ -15,6 +15,7 @@ void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
+extern uint64 cas(volatile void* addr, int expected, int newval);
 
 struct run {
   struct run *next;
@@ -85,6 +86,7 @@ kalloc(void)//todo need to change?
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+
   return (void*)r;
 }
 
