@@ -316,7 +316,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if(mappages(new, va, PGSIZE, pa, (uint)PTE_FLAGS(*pte)) < 0)
       goto err;
 
-    add_ref(pa); //todo: imp reference_add
+    add_ref(pa);
   }
   return 0;
 
@@ -348,7 +348,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    if (cow_handle(pagetable, va0) < 0)//todo:understand
+    if (cow_handle(pagetable, va0) < 0)
       return -1;
 
     pa0 = walkaddr(pagetable, va0);
