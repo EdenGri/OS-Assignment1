@@ -20,13 +20,14 @@ exec(char *path, char **argv)
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
-
+  int max_deref = MAX_DEREFERENCE;
   begin_op();
 
   if((ip = namei(path)) == 0){
     end_op();
     return -1;
   }
+  
   ilock(ip);
 
   // Check ELF header

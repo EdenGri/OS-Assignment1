@@ -205,6 +205,7 @@ ialloc(uint dev, short type)
     if(dip->type == 0){  // a free inode
       memset(dip, 0, sizeof(*dip));
       dip->type = type;
+      dip->block_tag = 0;
       log_write(bp);   // mark it allocated on the disk
       brelse(bp);
       return iget(dev, inum);
@@ -231,6 +232,7 @@ iupdate(struct inode *ip)
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
   dip->size = ip->size;
+  dip->block_tag = ip->block_tag;
   memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
   log_write(bp);
   brelse(bp);
@@ -244,11 +246,11 @@ iget(uint dev, uint inum)
 {
   struct inode *ip, *empty;
 
-  acquire(&itable.lock);
+  acquire(&icache.lock);
 
   // Is the inode already in the table?
   empty = 0;
-  for(ip = &itable.inode[0]; ip < &itable.inode[NINODE]; ip++){
+  for(ip = &icache.inode[0]; ip < &icache.inode[NINODE]; ip++){
     if(ip->ref > 0 && ip->dev == dev && ip->inum == inum){
       ip->ref++;
       release(&itable.lock);
@@ -267,7 +269,7 @@ iget(uint dev, uint inum)
   ip->inum = inum;
   ip->ref = 1;
   ip->valid = 0;
-  release(&itable.lock);
+  release(&icache.lock);
 
   return ip;
 }
@@ -277,9 +279,9 @@ iget(uint dev, uint inum)
 struct inode*
 idup(struct inode *ip)
 {
-  acquire(&itable.lock);
+  acquire(&icache.lock);
   ip->ref++;
-  release(&itable.lock);
+  release(&icache.lock);
   return ip;
 }
 
@@ -304,6 +306,7 @@ ilock(struct inode *ip)
     ip->minor = dip->minor;
     ip->nlink = dip->nlink;
     ip->size = dip->size;
+    ip->block_tag = dip->block_tag;
     memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
     brelse(bp);
     ip->valid = 1;
@@ -672,3 +675,5 @@ nameiparent(char *path, char *name)
 {
   return namex(path, 1, name);
 }
+
+

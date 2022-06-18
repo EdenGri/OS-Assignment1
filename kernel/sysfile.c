@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+#define FAIL -1
+#define SUCCESS 0
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -483,4 +485,68 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+uint64
+sys_symlink(void)
+{
+  char new_path[MAXPATH], old_path[MAXPATH];
+  memset(new_path, 0, sizeof(new_path));
+  if(argstr(0,new_path,MAXPATH) < 0 || argstr(1,new_path,MAXPATH) < 0)
+  {
+    return FAIL;
+  }
+
+  begin_op();
+  struct inode* ip = create(old_path,T_SYMLINK, 0, 0);
+  if(!ip)
+  {
+    end_op();
+    return FAIL;
+  }
+
+  if(writei(ip, 0, (uint64)new_path, 0, MAXPATH)!=MAXPATH)
+  {
+    return FAIL;
+  }
+  iunlockput(ip);
+  end_op();
+  return SUCCESS;
+}
+
+uint64
+sys_readlink(void)
+{
+  char path_name[MAXPATH];
+  uint64 dstva;
+  int buf_size;
+  if(argstr(0, path_name,MAXPATH) < 0 || argaddr(1, &dstva) < 0 || argint(2, &buf_size) < 0)
+  {
+    return FAIL;
+  }
+  begin_op();
+  struct inode* ip = namei(path_name);
+  if(!ip)
+  {
+    end_op();
+    return FAIL;
+  }
+  ilock(ip);
+  if(ip->type != T_SYMLINK || ip->size > buf_size)
+  {
+    iunlock(ip);
+    end_op();
+    return FAIL;
+  }
+  char buf[buf_size];
+  int result = readi(ip, 0, (uint64)buf, 0, buf_size);
+  struct proc *p = myproc();
+
+  if(copyout(p->pagetable, dstva, buf, buf_size) < 0)
+  {
+    result = FAIL;
+  }
+  iunlock(ip);
+  end_op();
+  return result;
 }
