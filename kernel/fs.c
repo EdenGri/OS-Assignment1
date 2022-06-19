@@ -232,7 +232,7 @@ iupdate(struct inode *ip)
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
   dip->size = ip->size;
-  dip->block_tag = ip->block_tag;
+  dip->block_tag = ip->block->tag;
   memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
   log_write(bp);
   brelse(bp);
@@ -404,8 +404,34 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
 
+  //OFRY added from here
+  bn -= NINDIRECT;
+
+  if(bn < NINDIRECT * NINDIRECT) { //double indirect 
+    // Load double-indirect block, allocating if needed 
+    uint first_level = bn / NINDIRECT;
+    if((addr = ip->addrs[NDIRECT + 1]) == 0)
+      ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev);
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if((addr = a[first_level]) == 0) {
+      a[first_level] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+    uint second_level = bn % NINDIRECT;
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if((addr = a[second_level]) == 0) {
+      a[second_level] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+    return addr;
+  }
+  //OFRY finished adding here 
   panic("bmap: out of range");
-}
+}  
 
 // Truncate inode (discard contents).
 // Caller must hold ip->lock.
@@ -414,7 +440,7 @@ itrunc(struct inode *ip)
 {
   int i, j;
   struct buf *bp;
-  uint *a;
+  uint *arr;
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
@@ -425,16 +451,36 @@ itrunc(struct inode *ip)
 
   if(ip->addrs[NDIRECT]){
     bp = bread(ip->dev, ip->addrs[NDIRECT]);
-    a = (uint*)bp->data;
+    arr = (uint*)bp->data;
     for(j = 0; j < NINDIRECT; j++){
-      if(a[j])
-        bfree(ip->dev, a[j]);
+      if(arr[j])
+        bfree(ip->dev, arr[j]);
     }
     brelse(bp);
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
-
+  //OFRY added from here 
+  if(ip->addrs[NDIRECT+1]){
+    bp = bread(ip->dev, ip->addrs[NDIRECT+1]);
+    arr = (uint*)bp->data;
+    for(i = 0; i < NINDIRECT; i++){
+      if(arr[i]) {
+        struct buf *bpp = bread(ip->dev, arr[i]);
+        uint *arr2 = (uint*)bpp->data;
+        for(int j = 0; j < NINDIRECT; j++){
+          if(arr2[j])
+            bfree(ip->dev, arr2[j]);
+        }
+        brelse(bpp);
+        bfree(ip->dev, arr[i]);
+      }
+    }
+    brelse(bp);
+    bfree(ip->dev, ip->addrs[NDIRECT+1]);
+    ip->addrs[NDIRECT] = 0; //todo : [NDIRECT] OR [NDIRECT + 1] ???
+  }
+  //OFRY finished adding here 
   ip->size = 0;
   iupdate(ip);
 }
@@ -675,5 +721,3 @@ nameiparent(char *path, char *name)
 {
   return namex(path, 1, name);
 }
-
-
