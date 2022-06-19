@@ -322,9 +322,9 @@ sys_open(void)
         return -1;
       }
     }
-    if(ip->type == T_DIR &&
-       omode != O_RDONLY && 
-       omode != O_NOFOLLOW)
+    if((ip->type == T_DIR) &&
+       (omode != O_RDONLY) && 
+       (omode != O_NOFOLLOW))
     {
       iunlockput(ip);
       end_op();
@@ -518,7 +518,7 @@ sys_symlink(void)
 {
   char new_path[MAXPATH], old_path[MAXPATH];
   memset(new_path, 0, sizeof(new_path));
-  if(argstr(0,new_path,MAXPATH) < 0 || argstr(1,new_path,MAXPATH) < 0)
+  if(argstr(0,new_path,MAXPATH) < 0 || argstr(1,old_path,MAXPATH) < 0)
   {
     return FAIL;
   }
@@ -546,7 +546,7 @@ sys_readlink(void)
   char path_name[MAXPATH];
   uint64 dstva;
   int buf_size;
-  if(argstr(0, path_name,MAXPATH) < 0 || argaddr(1, &dstva) < 0 || argint(2, &buf_size) < 0)
+  if(argstr(0, path_name,MAXPATH) < 0 || argint(2, &buf_size) < 0 || argaddr(1, &dstva) < 0)
   {
     return FAIL;
   }
