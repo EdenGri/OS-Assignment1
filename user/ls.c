@@ -44,7 +44,7 @@ ls(char *path)
 
   switch(st.type){
   case T_SYMLINK:
-    readsymlink(path, buf, 512);
+    readlink(path, buf, 512);
     printf("%s -> %s %d %d 0\n", fmtname(buf), buf, st.type, st.ino);
     break;
 
@@ -72,7 +72,7 @@ ls(char *path)
       if(st.type == T_SYMLINK)
       {
         char target[256];
-        readsymlink(buf, target, 256);
+        readlink(buf, target, 256);
         printf("%s -> %s %d %d %d\n", fmtname(buf), target, st.type, st.ino, st.size);
       }
       else

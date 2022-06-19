@@ -541,7 +541,7 @@ sys_symlink(void)
 }
 
 uint64
-sys_readsymlink(void)
+sys_readlink(void)
 {
   char path_name[MAXPATH];
   uint64 dstva;

@@ -206,7 +206,6 @@ ialloc(uint dev, short type)
     if(dip->type == 0){  // a free inode
       memset(dip, 0, sizeof(*dip));
       dip->type = type;
-      dip->block_tag = 0;
       log_write(bp);   // mark it allocated on the disk
       brelse(bp);
       return iget(dev, inum);
@@ -233,7 +232,6 @@ iupdate(struct inode *ip)
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
   dip->size = ip->size;
-  dip->block_tag = ip->block->tag;
   memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
   log_write(bp);
   brelse(bp);
@@ -247,11 +245,11 @@ iget(uint dev, uint inum)
 {
   struct inode *ip, *empty;
 
-  acquire(&icache.lock);
+  acquire(&itable.lock);
 
   // Is the inode already in the table?
   empty = 0;
-  for(ip = &icache.inode[0]; ip < &icache.inode[NINODE]; ip++){
+  for(ip = &itable.inode[0]; ip < &itable.inode[NINODE]; ip++){
     if(ip->ref > 0 && ip->dev == dev && ip->inum == inum){
       ip->ref++;
       release(&itable.lock);
@@ -270,7 +268,7 @@ iget(uint dev, uint inum)
   ip->inum = inum;
   ip->ref = 1;
   ip->valid = 0;
-  release(&icache.lock);
+  release(&itable.lock);
 
   return ip;
 }
@@ -280,9 +278,9 @@ iget(uint dev, uint inum)
 struct inode*
 idup(struct inode *ip)
 {
-  acquire(&icache.lock);
+  acquire(&itable.lock);
   ip->ref++;
-  release(&icache.lock);
+  release(&itable.lock);
   return ip;
 }
 
@@ -307,7 +305,6 @@ ilock(struct inode *ip)
     ip->minor = dip->minor;
     ip->nlink = dip->nlink;
     ip->size = dip->size;
-    ip->block_tag = dip->block_tag;
     memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
     brelse(bp);
     ip->valid = 1;
@@ -688,7 +685,7 @@ namex(char *path, int nameiparent, char *name, int ttl)
   while((path = skipelem(path, name)) != 0){
     ilock(ip);
     ip = deref(ip, &ttl);
-    if(ip=0)
+    if(ip == 0)
     {
       return 0;
     }
@@ -738,7 +735,7 @@ read_symlink(const char* path_name, char* buf, int buf_size)
     return -1;
   }
   ilock(ip);
-  res = getlinktarget(ip, buf, buf_size);
+  res = get_target(ip, buf, buf_size);
   iunlock(ip);
   
   return res;
