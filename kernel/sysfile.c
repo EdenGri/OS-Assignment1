@@ -128,7 +128,8 @@ sys_link(void)
     return -1;
 
   begin_op();
-  if((ip = namei(old)) == 0){
+  ip = namei(old);
+  if(ip == 0){
     end_op();
     return -1;
   }
@@ -293,6 +294,7 @@ sys_open(void)
   struct file *f;
   struct inode *ip;
   int n;
+  int ttl = MAX_DEREFERENCE;
 
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
     return -1;
@@ -311,7 +313,19 @@ sys_open(void)
       return -1;
     }
     ilock(ip);
-    if(ip->type == T_DIR && omode != O_RDONLY){
+    if(ip->type ==T_SYMLINK && (omode != O_NOFOLLOW))
+    {
+      ip = deref(ip, &ttl);
+      if(!ip)
+      {
+        end_op();
+        return -1;
+      }
+    }
+    if(ip->type == T_DIR &&
+       omode != O_RDONLY && 
+       omode != O_NOFOLLOW)
+    {
       iunlockput(ip);
       end_op();
       return -1;
@@ -395,17 +409,27 @@ sys_chdir(void)
   char path[MAXPATH];
   struct inode *ip;
   struct proc *p = myproc();
-  
+  int ttl = MAX_DEREFERENCE;
+
   begin_op();
   if(argstr(0, path, MAXPATH) < 0 || (ip = namei(path)) == 0){
     end_op();
     return -1;
   }
   ilock(ip);
-  if(ip->type != T_DIR){
+  if(ip->type != T_DIR && ip->type !=T_SYMLINK){
     iunlockput(ip);
     end_op();
     return -1;
+  }
+  if(ip->type == T_SYMLINK)
+  {
+    ip = deref(ip, &ttl);
+    if(!ip)
+    {
+      end_op();
+      return -1;
+    }
   }
   iunlock(ip);
   iput(p->cwd);
@@ -487,6 +511,8 @@ sys_pipe(void)
   return 0;
 }
 
+
+
 uint64
 sys_symlink(void)
 {
@@ -515,7 +541,7 @@ sys_symlink(void)
 }
 
 uint64
-sys_readlink(void)
+sys_readsymlink(void)
 {
   char path_name[MAXPATH];
   uint64 dstva;

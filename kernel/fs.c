@@ -21,6 +21,7 @@
 #include "buf.h"
 #include "file.h"
 
+#define FAIL 0
 #define min(a, b) ((a) < (b) ? (a) : (b))
 // there should be one superblock per disk device, but we run with
 // only one device
@@ -675,7 +676,7 @@ skipelem(char *path, char *name)
 // path element into name, which must have room for DIRSIZ bytes.
 // Must be called inside a transaction since it calls iput().
 static struct inode*
-namex(char *path, int nameiparent, char *name)
+namex(char *path, int nameiparent, char *name, int ttl)
 {
   struct inode *ip, *next;
 
@@ -686,6 +687,11 @@ namex(char *path, int nameiparent, char *name)
 
   while((path = skipelem(path, name)) != 0){
     ilock(ip);
+    ip = deref(ip, &ttl);
+    if(ip=0)
+    {
+      return 0;
+    }
     if(ip->type != T_DIR){
       iunlockput(ip);
       return 0;
@@ -713,11 +719,63 @@ struct inode*
 namei(char *path)
 {
   char name[DIRSIZ];
-  return namex(path, 0, name);
+  return namex(path, 0, name, MAX_DEREFERENCE);
 }
 
 struct inode*
 nameiparent(char *path, char *name)
 {
-  return namex(path, 1, name);
+  return namex(path, 1, name, MAX_DEREFERENCE);
+}
+
+int
+read_symlink(const char* path_name, char* buf, int buf_size)
+{
+  char name[DIRSIZ];
+  int res;
+  struct inode* ip = namex((char*)(path_name), 0, name, MAX_DEREFERENCE);
+  if(ip == 0){
+    return -1;
+  }
+  ilock(ip);
+  res = getlinktarget(ip, buf, buf_size);
+  iunlock(ip);
+  
+  return res;
+}
+
+struct inode*
+deref(struct inode* ip, int* ttl)
+{
+  struct inode* res = ip;
+  char buf[256];
+  char name[DIRSIZ];
+  while(res->type == T_SYMLINK)
+  {
+    *ttl = *ttl - 1;
+    if((*ttl)==0){
+      iunlockput(res);
+      return FAIL;
+    }
+    get_target(res, buf, res->size);
+    iunlockput(res);
+    res = namex(buf, 0, name, *ttl);
+    if(!res){
+      return FAIL;
+    }
+    ilock(res);
+  }
+  return res;
+}
+
+int
+get_target(struct inode* ip, char* buf, int buf_size)
+{
+  if(ip->type != T_SYMLINK)
+  {
+    iunlock(ip);
+    return -1;
+  }
+  readi(ip,0, (uint64)buf, 0, buf_size);
+  return 0;
 }
