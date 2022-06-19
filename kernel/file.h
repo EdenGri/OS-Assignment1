@@ -27,7 +27,6 @@ struct inode {
   short nlink;
   uint size;
   uint addrs[NDIRECT+2]; //OFRY
-  uint pad[15];//OFRY
 };
 
 // map major device number to device functions.

@@ -726,7 +726,7 @@ nameiparent(char *path, char *name)
 }
 
 int
-read_symlink(const char* path_name, char* buf, int buf_size)
+readlink(const char* path_name, char* buf, int buf_size)
 {
   char name[DIRSIZ];
   int res;
