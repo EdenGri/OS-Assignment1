@@ -41,10 +41,11 @@ ls(char *path)
     close(fd);
     return;
   }
-
+  struct stat st_target;
   switch(st.type){
   case T_SYMLINK:
     readlink(path, buf, 512);
+    stat(buf, &st_target);
     printf("%s -> %s %d %d 0\n", fmtname(buf), buf, st.type, st.ino);
     break;
 
@@ -73,7 +74,8 @@ ls(char *path)
       {
         char target[256];
         readlink(buf, target, 256);
-        printf("%s -> %s %d %d %d\n", fmtname(buf), target, st.type, st.ino, st.size);
+        stat(target, &st_target);
+        printf("%s -> %s %d %d 0\n", fmtname(buf), target, st_target.type, st.ino);
       }
       else
       {
