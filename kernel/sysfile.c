@@ -438,6 +438,42 @@ sys_chdir(void)
   return 0;
 }
 
+int exec_deref(struct inode* ip, char* buf, int buf_size)
+{
+  struct inode* nip;
+  int i = 0;
+  while(i < MAX_DEREFERENCE)
+  {
+    if (ip->type == T_SYMLINK)
+    {
+      int result = readi(ip, 0, (uint64)buf, 0, buf_size);
+      if(result<=0)
+      {
+        iunlock(ip);
+        return 0;
+      }
+      nip = namei(buf);
+      if (nip == 0)
+      {
+        iunlock(ip);
+        return 0;
+      }
+      iunlock(ip);
+      ip = nip;
+      ilock(ip);
+
+      i++;
+    }
+    else
+    {
+      iunlock(ip);
+      return 1;
+    }
+  }
+  iunlock(ip);
+  return 0;
+}
+
 uint64
 sys_exec(void)
 {
@@ -465,6 +501,22 @@ sys_exec(void)
       goto bad;
     if(fetchstr(uarg, argv[i], PGSIZE) < 0)
       goto bad;
+  }
+  struct inode* ip = namei(path);
+  if(!ip){
+    end_op();
+    return -1;
+  }
+  ilock(ip);
+
+  if(ip->type != T_SYMLINK)
+  {
+    iunlock(ip);
+  }
+  else if(exec_deref(ip, path, MAXPATH) == 0)
+  {
+    end_op();
+    return -1;
   }
 
   int ret = exec(path, argv);
@@ -512,26 +564,25 @@ sys_pipe(void)
 }
 
 
-
 uint64
 sys_symlink(void)
 {
-  char new_path[MAXPATH], old_path[MAXPATH];
-  memset(new_path, 0, sizeof(new_path));
-  if(argstr(0,new_path,MAXPATH) < 0 || argstr(1,old_path,MAXPATH) < 0)
+  char old_path[MAXPATH], new_path[MAXPATH];
+  memset(old_path, 0, sizeof(old_path));
+  if(argstr(0,old_path,MAXPATH) < 0 || argstr(1,new_path,MAXPATH) < 0)
   {
     return FAIL;
   }
 
   begin_op();
-  struct inode* ip = create(old_path,T_SYMLINK, 0, 0);
+  struct inode* ip = create(new_path,T_SYMLINK, 0, 0);
   if(!ip)
   {
     end_op();
     return FAIL;
   }
 
-  if(writei(ip, 0, (uint64)new_path, 0, MAXPATH)!=MAXPATH)
+  if(writei(ip, 0, (uint64)old_path, 0, MAXPATH)!=MAXPATH)
   {
     return FAIL;
   }
@@ -576,3 +627,4 @@ sys_readlink(void)
   end_op();
   return result;
 }
+
