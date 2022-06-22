@@ -10,7 +10,7 @@ main(int argc, char *argv[])
 
   if(argc < 3 || argc > 4)
   {
-    printf("Usage: ln old new, or, ls -l old new\n");
+    printf("Usage: ln old new, or, ls -s old new\n");
     exit(0);
   }
   if(strcmp(argv[1], "-s"))

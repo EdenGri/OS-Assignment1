@@ -4,8 +4,6 @@
 #include "kernel/fcntl.h"
 #include "kernel/fs.h"
 
-//OFRY added this whole file to test implementation 
-
 int
 main()
 {
@@ -33,6 +31,7 @@ main()
     }
     if (num_blocks == 12 + 256 + 256 * 256){
         printf("Done writing 10MB\n");
+        break;
     }
     if (num_blocks % 1000 == 0)
       printf("Done writing an addition of 1000 blocks\n");

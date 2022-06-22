@@ -402,7 +402,6 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
 
-  //OFRY added from here
   bn -= NINDIRECT;
 
   if(bn < NINDIRECT * NINDIRECT) { //double indirect 
@@ -427,7 +426,6 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
-  //OFRY finished adding here 
   panic("bmap: out of range");
 }  
 
@@ -458,7 +456,6 @@ itrunc(struct inode *ip)
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
-  //OFRY added from here 
   if(ip->addrs[NDIRECT+1]){
     bp = bread(ip->dev, ip->addrs[NDIRECT+1]);
     arr = (uint*)bp->data;
@@ -476,9 +473,8 @@ itrunc(struct inode *ip)
     }
     brelse(bp);
     bfree(ip->dev, ip->addrs[NDIRECT+1]);
-    ip->addrs[NDIRECT] = 0; //todo : [NDIRECT] OR [NDIRECT + 1] ???
+    ip->addrs[NDIRECT] = 0;
   }
-  //OFRY finished adding here 
   ip->size = 0;
   iupdate(ip);
 }
